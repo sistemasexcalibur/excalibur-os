@@ -54,9 +54,20 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .chip.active{background:#FFF7ED;color:#E07015;border-color:#FED7AA}
 .chip::-webkit-scrollbar{display:none}
 @media print{.no-print{display:none!important}}
+#app-toast{position:fixed;bottom:85px;left:50%;transform:translateX(-50%) translateY(20px);background:#111827;color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;font-weight:500;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.25);max-width:88vw;text-align:center;opacity:0;transition:all .25s;pointer-events:none}
+#app-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#app-toast.success{background:#059669}
+#app-toast.error{background:#DC2626}
+#app-toast.warning{background:#D97706}
+#app-toast.info{background:#2563EB}
+#app-dialog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;transition:opacity .2s}
+#app-dialog-overlay.show{opacity:1}
 </style>
 </head>
 <body>
+
+<!-- TOAST E DIALOG (notificações nativas do app) -->
+<div id="app-toast"></div>
 
 <!-- BANNER OFFLINE -->
 <div id="offline-banner" style="display:none;background:#7C3AED;color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;position:sticky;top:60px;z-index:200">
@@ -82,31 +93,42 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
       <div class="stat-card"><div class="stat-num" id="sp" style="color:#F59E0B">0</div><div class="stat-lbl">Pendentes</div></div>
     </div>
     <!-- BUSCA E FILTROS -->
-    <div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:12px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)">
+    <div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:14px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)">
       <div style="position:relative;margin-bottom:10px">
-        <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:16px"></i>
-        <input id="busca-input" class="inp" type="text" placeholder="Buscar por OS, cliente, equipamento..." style="padding-left:38px" oninput="filtros.busca=this.value;aplicarFiltros()">
+        <i class="ti ti-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:16px;pointer-events:none"></i>
+        <input id="busca-input" class="inp" type="text" placeholder="Buscar OS, cliente, equipamento..." style="padding-left:38px;background:#F9FAFB" oninput="filtros.busca=this.value;aplicarFiltros()">
       </div>
-      <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none">
-        <button class="chip active" data-f="status" data-v="todos" onclick="setFiltro('status','todos',this)">Todos</button>
-        <button class="chip" data-f="status" data-v="rascunho" onclick="setFiltro('status','rascunho',this)">🟣 Rascunho</button>
-        <button class="chip" data-f="status" data-v="em_andamento" onclick="setFiltro('status','em_andamento',this)">🔵 Em andamento</button>
-        <button class="chip" data-f="status" data-v="concluido" onclick="setFiltro('status','concluido',this)">🟢 Concluído</button>
-        <button class="chip" data-f="status" data-v="pendente_peca" onclick="setFiltro('status','pendente_peca',this)">🟡 Pend. peça</button>
-        <button class="chip" data-f="status" data-v="aguardando_aprovacao" onclick="setFiltro('status','aguardando_aprovacao',this)">⚪ Aguard. aprv.</button>
-      </div>
-      <div style="display:flex;gap:6px;overflow-x:auto;padding-top:6px;scrollbar-width:none">
-        <button class="chip active" data-f="tipo" data-v="todos" onclick="setFiltro('tipo','todos',this)">Todos tipos</button>
-        <button class="chip" data-f="tipo" data-v="corretiva" onclick="setFiltro('tipo','corretiva',this)">🔧 Corretiva</button>
-        <button class="chip" data-f="tipo" data-v="preventiva" onclick="setFiltro('tipo','preventiva',this)">🔍 Preventiva</button>
-        <button class="chip" data-f="tipo" data-v="emergencial" onclick="setFiltro('tipo','emergencial',this)">🚨 Emergencial</button>
-        <button class="chip" data-f="tipo" data-v="inspecao" onclick="setFiltro('tipo','inspecao',this)">📋 Inspeção</button>
-      </div>
-      <div style="display:flex;gap:6px;overflow-x:auto;padding-top:6px;scrollbar-width:none">
-        <button class="chip active" data-f="periodo" data-v="todos" onclick="setFiltro('periodo','todos',this)">Todos</button>
-        <button class="chip" data-f="periodo" data-v="hoje" onclick="setFiltro('periodo','hoje',this)">Hoje</button>
-        <button class="chip" data-f="periodo" data-v="semana" onclick="setFiltro('periodo','semana',this)">Esta semana</button>
-        <button class="chip" data-f="periodo" data-v="mes" onclick="setFiltro('periodo','mes',this)">Este mês</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div>
+          <div style="font-size:10px;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Status</div>
+          <select class="inp" id="sel-status" style="font-size:13px;padding:8px 10px;background:#F9FAFB" onchange="setFiltroSelect('status',this.value)">
+            <option value="todos">Todos</option>
+            <option value="rascunho">Rascunho</option>
+            <option value="em_andamento">Em andamento</option>
+            <option value="concluido">Concluído</option>
+            <option value="pendente_peca">Pend. peça</option>
+            <option value="aguardando_aprovacao">Aguard. aprv.</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Tipo</div>
+          <select class="inp" id="sel-tipo" style="font-size:13px;padding:8px 10px;background:#F9FAFB" onchange="setFiltroSelect('tipo',this.value)">
+            <option value="todos">Todos</option>
+            <option value="corretiva">Corretiva</option>
+            <option value="preventiva">Preventiva</option>
+            <option value="emergencial">Emergencial</option>
+            <option value="inspecao">Inspeção</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Período</div>
+          <select class="inp" id="sel-periodo" style="font-size:13px;padding:8px 10px;background:#F9FAFB" onchange="setFiltroSelect('periodo',this.value)">
+            <option value="todos">Todos</option>
+            <option value="hoje">Hoje</option>
+            <option value="semana">Esta semana</option>
+            <option value="mes">Este mês</option>
+          </select>
+        </div>
       </div>
     </div>
     <div id="resultado-filtro" style="font-size:12px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px"></div>
@@ -236,7 +258,27 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 const SB="https://xtwjvdwolxkkgecaamaf.supabase.co";
 const KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0d2p2ZHdvbHhra2dlY2FhbWFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0Mzg0NzQsImV4cCI6MjA5NjAxNDQ3NH0.pu9obKgZJAbXZrUYvxlrH9jMTh1Z2RSYNB2HRceWW8w";
 const H={apikey:KEY,Authorization:`Bearer ${KEY}`,"Content-Type":"application/json",Prefer:"return=representation"};
-async function sbGet(t,q=""){const r=await fetch(`${SB}/rest/v1/${t}${q}`,{headers:H});if(!r.ok)throw new Error(await r.text());return r.json()}
+async function sbGet(t,q=""){
+  // Modo offline: tenta cache local primeiro
+  if(!navigator.onLine){
+    try{const c=await cacheGet(t+q);if(c!=null)return c;}catch(e){}
+    return [];
+  }
+  try{
+    const r=await fetch(`${SB}/rest/v1/${t}${q}`,{headers:H});
+    if(!r.ok)throw new Error(await r.text());
+    const d=await r.json();
+    // Cacheia listas simples para uso offline
+    if(!q.includes('atendimento_id=eq')&&!q.includes('id=eq.')){
+      cacheSet(t+q,d).catch(()=>{});
+    }
+    return d;
+  }catch(e){
+    // Falhou na rede — tenta cache
+    try{const c=await cacheGet(t+q);if(c!=null){console.log('[offline] cache:',t);return c;}}catch(e2){}
+    throw e;
+  }
+}
 async function sbPost(t,b){const r=await fetch(`${SB}/rest/v1/${t}`,{method:"POST",headers:H,body:JSON.stringify(b)});if(!r.ok)throw new Error(await r.text());return r.json()}
 async function sbRpc(fn){const r=await fetch(`${SB}/rest/v1/rpc/${fn}`,{method:"POST",headers:H,body:"{}"});if(!r.ok)throw new Error(await r.text());return r.json()}
 async function sbPatch(table,id,body){const r=await fetch(`${SB}/rest/v1/${table}?id=eq.${id}`,{method:"PATCH",headers:H,body:JSON.stringify(body)});if(!r.ok)throw new Error(await r.text());return r.json()}
@@ -261,13 +303,62 @@ function badge(s){
   return`<span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:${b.bg};color:${b.c};border:1px solid ${b.b}">${b.l}</span>`
 }
 
+// ── NOTIFICAÇÕES NATIVAS DO APP ──────────────────────────────
+let _toastTimer=null;
+function toast(msg,tipo='success',duracao=3500){
+  const el=document.getElementById('app-toast');
+  if(!el)return;
+  if(_toastTimer)clearTimeout(_toastTimer);
+  el.textContent=msg;
+  el.className='show '+tipo;
+  _toastTimer=setTimeout(()=>{el.className='';},duracao);
+}
+
+function dialogo(msg,tipo='info'){
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');
+    ov.id='app-dialog-overlay';
+    const icon={success:'ti-circle-check',error:'ti-alert-circle',warning:'ti-alert-triangle',info:'ti-info-circle'}[tipo]||'ti-info-circle';
+    const cor={success:'#059669',error:'#DC2626',warning:'#D97706',info:'#2563EB'}[tipo]||'#2563EB';
+    ov.innerHTML=`<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+      <div style="text-align:center;margin-bottom:16px"><i class="ti ${icon}" style="font-size:40px;color:${cor}"></i></div>
+      <div style="font-size:15px;color:#111827;margin-bottom:20px;text-align:center;line-height:1.5">${msg}</div>
+      <button onclick="this.closest('#app-dialog-overlay').remove();resolve&&resolve();" style="width:100%;padding:12px;background:${cor};color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer">OK</button>
+    </div>`;
+    document.body.appendChild(ov);
+    const btn=ov.querySelector('button');
+    btn.onclick=()=>{ov.remove();resolve(true);};
+    requestAnimationFrame(()=>ov.classList.add('show'));
+  });
+}
+
+function confirmar(msg,confirmLabel='Confirmar',cancelLabel='Cancelar'){
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');
+    ov.id='app-dialog-overlay';
+    ov.innerHTML=`<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+      <div style="text-align:center;margin-bottom:16px"><i class="ti ti-help-circle" style="font-size:40px;color:#E07015"></i></div>
+      <div style="font-size:15px;color:#111827;margin-bottom:20px;text-align:center;line-height:1.5">${msg}</div>
+      <div style="display:flex;gap:10px">
+        <button id="d-no"  style="flex:1;padding:12px;border:1px solid #E5E7EB;border-radius:10px;background:#fff;color:#374151;font-size:14px;font-weight:600;cursor:pointer">${cancelLabel}</button>
+        <button id="d-yes" style="flex:1;padding:12px;border:none;border-radius:10px;background:#E07015;color:#fff;font-size:14px;font-weight:600;cursor:pointer">${confirmLabel}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    requestAnimationFrame(()=>ov.classList.add('show'));
+    ov.querySelector('#d-yes').onclick=()=>{ov.remove();resolve(true);};
+    ov.querySelector('#d-no').onclick=()=>{ov.remove();resolve(false);};
+  });
+}
+// ─────────────────────────────────────────────────────────────
+
 async function showDash(){
   showScreen("scr-dash");
   document.getElementById("dash-list").innerHTML='<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:28px;display:block;margin-bottom:8px"></i>Carregando...</div>';
   // Resetar filtros ao entrar no dashboard
   filtros={busca:'',status:'todos',tipo:'todos',periodo:'todos'};
   const busca=document.getElementById('busca-input');if(busca)busca.value='';
-  document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c.dataset.v==='todos'));
+  ['status','tipo','periodo'].forEach(f=>{const s=document.getElementById('sel-'+f);if(s)s.value='todos';});
   try{
     const d=await sbGet("atendimentos","?select=*,tecnicos(nome),clientes(nome),equipamentos(tipo,marca,modelo)&order=criado_em.desc&limit=200");
     todosAtendimentos=d;
@@ -306,10 +397,14 @@ function renderAtendimentos(d){
     </div></div>`).join("");
 }
 
+function setFiltroSelect(campo, valor){
+  filtros[campo]=valor;
+  aplicarFiltros();
+}
 function setFiltro(campo, valor, el){
   filtros[campo]=valor;
-  document.querySelectorAll(`.chip[data-f="${campo}"]`).forEach(c=>c.classList.remove('active'));
-  if(el)el.classList.add('active');
+  const sel=document.getElementById('sel-'+campo);
+  if(sel)sel.value=valor;
   aplicarFiltros();
 }
 
@@ -409,10 +504,10 @@ async function loadCadastros(){
 function showFormCli(){showScreen("scr-form-cli");["nome","doc","tel","email","end","cidade","uf"].forEach(f=>document.getElementById("cli-"+f).value="")}
 async function salvarCliente(){
   const nome=document.getElementById("cli-nome").value.trim();
-  if(!nome){alert("Nome é obrigatório");return}
+  if(!nome){toast("Nome é obrigatório","error");return}
   const btn=document.getElementById("bsc");btn.disabled=true;btn.innerHTML='Salvando...';
   try{await sbPost("clientes",{nome,cnpj_cpf:document.getElementById("cli-doc").value||null,telefone:document.getElementById("cli-tel").value||null,email:document.getElementById("cli-email").value||null,endereco:document.getElementById("cli-end").value||null,cidade:document.getElementById("cli-cidade").value||null,estado:document.getElementById("cli-uf").value||null});showCadastros("clientes")}
-  catch(e){alert("Erro: "+e.message)}finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar Cliente'}
+  catch(e){dialogo("Erro ao salvar: "+e.message,"error")}finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar Cliente'}
 }
 async function showFormEq(){
   showScreen("scr-form-eq");["tipo","marca","modelo","serie","ano","placa"].forEach(f=>document.getElementById("eq-"+f).value="");
@@ -421,18 +516,18 @@ async function showFormEq(){
 }
 async function salvarEq(){
   const t=document.getElementById("eq-tipo").value.trim(),m=document.getElementById("eq-marca").value.trim(),mo=document.getElementById("eq-modelo").value.trim();
-  if(!t||!m||!mo){alert("Tipo, marca e modelo são obrigatórios");return}
+  if(!t||!m||!mo){toast("Tipo, marca e modelo são obrigatórios","error");return}
   const btn=document.getElementById("bse");btn.disabled=true;btn.innerHTML='Salvando...';
   try{await sbPost("equipamentos",{tipo:t,marca:m,modelo:mo,cliente_id:document.getElementById("eq-cli").value||null,numero_serie:document.getElementById("eq-serie").value||null,ano_fabricacao:document.getElementById("eq-ano").value?parseInt(document.getElementById("eq-ano").value):null,placa:document.getElementById("eq-placa").value||null});showCadastros("equipamentos")}
-  catch(e){alert("Erro: "+e.message)}finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar Equipamento'}
+  catch(e){dialogo("Erro ao salvar: "+e.message,"error")}finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar Equipamento'}
 }
 function showFormTec(){showScreen("scr-form-tec");["nome","tel","email"].forEach(f=>document.getElementById("tec-"+f).value="")}
 async function salvarTec(){
   const nome=document.getElementById("tec-nome").value.trim();
-  if(!nome){alert("Nome é obrigatório");return}
+  if(!nome){toast("Nome é obrigatório","error");return}
   const btn=document.getElementById("bst");btn.disabled=true;btn.innerHTML='Salvando...';
   try{await sbPost("tecnicos",{nome,telefone:document.getElementById("tec-tel").value||null,email:document.getElementById("tec-email").value||null});showCadastros("tecnicos")}
-  catch(e){alert("Erro: "+e.message)}finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar Técnico'}
+  catch(e){dialogo("Erro ao salvar: "+e.message,"error")}finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar Técnico'}
 }
 
 async function showNova(){
@@ -612,7 +707,7 @@ async function salvarRascunho(){
   btn.disabled=true;btn.innerHTML='Salvando...';
   try{
     const dados={...formData};
-    ['tecnico_id','cliente_id','equipamento_id'].forEach(f=>{if(!dados[f])dados[f]=null});
+    ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(f=>{if(!dados[f])dados[f]=null});
     dados.status='rascunho';
     let atId;
     if(currentOSId){
@@ -629,7 +724,7 @@ async function salvarRascunho(){
     btn.innerHTML='<i class="ti ti-check" style="margin-right:4px"></i>Rascunho salvo!';
     setTimeout(()=>{btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho'},2500);
   }catch(e){
-    alert("Erro ao salvar rascunho: "+e.message);
+    dialogo("Erro: "+e.message,"error");
     btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';
   }
 }
@@ -641,12 +736,12 @@ async function salvarOS(){
     if(!navigator.onLine){
       const atOffline=await salvarOSOffline();
       currentOS=atOffline;
-      alert('⚠️ Sem conexão — OS salva localmente e será enviada ao Supabase automaticamente quando voltar a internet.');
+      toast('Sem conexão — OS salva localmente e será sincronizada ao conectar','warning',5000);
       showDash();
       return;
     }
     const dados={...formData};
-    ['tecnico_id','cliente_id','equipamento_id'].forEach(f=>{if(!dados[f])dados[f]=null});
+    ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(f=>{if(!dados[f])dados[f]=null});
     const sigTec=getSignature('canvas-tec');
     const sigCli=getSignature('canvas-cli');
     if(sigTec)dados.assinatura_tecnico=sigTec;
@@ -670,7 +765,7 @@ async function salvarOS(){
       atObj=at;
     }
     currentOS=atObj;showRelatorio(atObj);
-  }catch(e){alert("Erro ao salvar: "+e.message)}
+  }catch(e){dialogo("Erro ao salvar OS: "+e.message,"error")}
   finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Finalizar OS'}
 }
 
@@ -714,12 +809,14 @@ async function showRelatorio(os){
 showDash();
 
 
+
+
 // ════════════════════════════════════════════════════════════
 // CAMADA OFFLINE — IndexedDB + Sync
 // ════════════════════════════════════════════════════════════
 
 const IDB_NAME = 'excalibur_db', IDB_VER = 1;
-let _idb = null;
+var _idb = null;
 
 function abrirDB() {
   if (_idb) return Promise.resolve(_idb);
@@ -776,29 +873,6 @@ async function filaDelete(id) {
   });
 }
 
-// sbGet com fallback offline
-const _sbGetOriginal = sbGet;
-async function sbGet(table, q="") {
-  if (!navigator.onLine) {
-    const cached = await cacheGet(table + q);
-    return cached || [];
-  }
-  try {
-    const r = await fetch(`${SB}/rest/v1/${table}${q}`, {headers: H});
-    if (!r.ok) throw new Error(await r.text());
-    const data = await r.json();
-    // Cacheia para uso offline (só listas simples)
-    if (!q.includes('atendimento_id') && !q.includes('id=eq')) {
-      await cacheSet(table + q, data);
-    }
-    return data;
-  } catch(e) {
-    const cached = await cacheGet(table + q);
-    if (cached) { console.log('[offline] Usando cache:', table); return cached; }
-    throw e;
-  }
-}
-
 // salvarOS offline — salva pacote completo no IndexedDB
 async function salvarOSOffline() {
   const dados = {...formData};
@@ -826,9 +900,9 @@ async function salvarOSOffline() {
 // Sincroniza fila com o Supabase
 async function sincronizarFila() {
   const pendentes = await filaGetAll();
-  if (!pendentes.length) { alert('Nenhuma OS pendente.'); return; }
+  if (!pendentes.length) { toast('Nenhuma OS pendente para sincronizar','info'); return; }
 
-  if (!navigator.onLine) { alert('Sem conexão. Tente novamente quando tiver internet.'); return; }
+  if (!navigator.onLine) { toast('Sem conexão com a internet','warning'); return; }
 
   const btn = document.getElementById('badge-pendentes');
   if (btn) { btn.textContent = 'Sincronizando...'; btn.style.background = '#E07015'; }
@@ -864,10 +938,7 @@ async function sincronizarFila() {
   }
 
   await atualizarBadgePendentes();
-  alert(ok > 0
-    ? `✅ ${ok} OS sincronizada${ok>1?'s':''} com sucesso!${erros>0?' ⚠️ '+erros+' com erro.':''}`
-    : `⚠️ Erro ao sincronizar. Verifique a conexão.`
-  );
+  ok>0?toast(`${ok} OS sincronizada${ok>1?'s':''} com sucesso!`,'success'):toast('Erro ao sincronizar. Verifique a conexão.','error');
   if (ok > 0) showDash();
 }
 
@@ -895,6 +966,8 @@ function atualizarStatusOffline() {
 }
 window.addEventListener('online',  atualizarStatusOffline);
 window.addEventListener('offline', atualizarStatusOffline);
+
+
 
 // Registro do Service Worker
 if ('serviceWorker' in navigator) {
