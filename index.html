@@ -601,31 +601,42 @@ async function showDash(){
     document.getElementById('dash-list').innerHTML='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px;color:#DC2626;font-size:13px"><i class="ti ti-alert-circle" style="margin-right:6px"></i>Erro: '+e.message+'</div>';
   }
 }
+function openOSIdx(i){
+  var os=window._dashData&&window._dashData[i];
+  if(!os)return;
+  if(os.status==='rascunho'){editarOS(os);}else{currentOS=os;showRelatorio(os);}
+}
 function renderAtendimentos(d){
+  window._dashData=d;
   var tE={corretiva:'🔧',preventiva:'🔍',emergencial:'🚨',inspecao:'📋'};
-  var res=document.getElementById('resultado-filtro');
   var list=document.getElementById('dash-list');
+  var res=document.getElementById('resultado-filtro');
   var comFiltro=filtros.busca||filtros.status!=='todos'||filtros.tipo!=='todos'||filtros.periodo!=='todos';
   if(res)res.textContent=comFiltro?(d.length+' resultado'+(d.length!==1?'s':'')+' encontrado'+(d.length!==1?'s':'')):'';
   if(!d.length){
     list.innerHTML=comFiltro
-      ?'<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-search" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i><div style="font-weight:600;color:#374151">Nenhum resultado</div><div style="font-size:14px;margin-top:6px">Tente outros filtros</div></div>'
-      :'<div style="text-align:center;padding:60px 20px;color:#9CA3AF"><i class="ti ti-clipboard-list" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i><div style="font-weight:600;font-size:16px;color:#374151">Nenhum atendimento ainda</div><div style="font-size:14px;margin-top:6px">Clique em Nova OS para começar</div></div>';
+      ?'<div style="text-align:center;padding:40px;color:#9CA3AF">Nenhum resultado — tente outros filtros</div>'
+      :'<div style="text-align:center;padding:60px 20px;color:#9CA3AF"><div style="font-size:16px;font-weight:600;color:#374151">Nenhum atendimento</div></div>';
     return;
   }
-  list.innerHTML=d.map(function(a){
-    return '<div class="card" style="margin-bottom:10px;cursor:pointer;transition:box-shadow .15s" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,.1)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.06)'" onclick='openOS('+JSON.stringify(JSON.stringify(a))+')'>'
-      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px"><div>'
-      +'<div style="font-size:12px;font-weight:700;color:#E07015;margin-bottom:3px">'+a.numero_os+'</div>'
-      +'<div style="font-size:15px;font-weight:600;color:#111827">'+(tE[a.tipo_manutencao]||'📋')+' '+(a.equipamentos?a.equipamentos.tipo+' '+a.equipamentos.marca:'Equipamento')+'</div>'
-      +'</div>'+badge(a.status)+'</div>'
-      +'<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:#6B7280">'
-      +'<span><i class="ti ti-building" style="margin-right:3px"></i>'+(a.clientes?a.clientes.nome:'—')+'</span>'
-      +'<span><i class="ti ti-user" style="margin-right:3px"></i>'+(a.tecnicos?a.tecnicos.nome:'—')+'</span>'
-      +'<span><i class="ti ti-calendar" style="margin-right:3px"></i>'+a.data_atendimento+'</span>'
-      +'</div></div>';
-  }).join('');
+  var html='';
+  d.forEach(function(a,i){
+    var tipo=tE[a.tipo_manutencao]||'📋';
+    var equip=a.equipamentos?a.equipamentos.tipo+' '+a.equipamentos.marca:'Equipamento';
+    html+='<div class="card" style="margin-bottom:10px;cursor:pointer" data-idx="'+i+'" onclick="openOSIdx(+this.dataset.idx)">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">';
+    html+='<div><div style="font-size:12px;font-weight:700;color:#E07015;margin-bottom:3px">'+a.numero_os+'</div>';
+    html+='<div style="font-size:15px;font-weight:600;color:#111827">'+tipo+' '+equip+'</div></div>';
+    html+=badge(a.status)+'</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:#6B7280">';
+    html+='<span><i class="ti ti-building" style="margin-right:3px"></i>'+(a.clientes?a.clientes.nome:'—')+'</span>';
+    html+='<span><i class="ti ti-user" style="margin-right:3px"></i>'+(a.tecnicos?a.tecnicos.nome:'—')+'</span>';
+    html+='<span><i class="ti ti-calendar" style="margin-right:3px"></i>'+a.data_atendimento+'</span>';
+    html+='</div></div>';
+  });
+  list.innerHTML=html;
 }
+
 function openOS(json){var os=JSON.parse(json);if(os.status==='rascunho'){editarOS(os);}else{currentOS=os;showRelatorio(os);};}
 function setFiltroSelect(campo,valor){filtros[campo]=valor;aplicarFiltros();}
 function aplicarFiltros(){
@@ -764,11 +775,24 @@ function setCheck(i,k,v){checklist[i][k]=v;renderStep();}
 function updateFoto(i,k,v){fotos[i][k]=v;}
 function removeFoto(i){fotos.splice(i,1);document.getElementById('fl').innerHTML=renderFotos();}
 function renderFotos(){
-  if(!fotos.length) return'<div style="text-align:center;padding:30px;color:#9CA3AF;border:2px dashed #E5E7EB;border-radius:12px">Nenhuma foto adicionada ainda</div>';
-  return fotos.map(function(f,i){
-    return'<div class="card" style="overflow:hidden;padding:0;margin-bottom:12px"><img src="'+f.preview+'" style="width:100%;max-height:220px;object-fit:cover;display:block"><div style="padding:12px"><input class="inp" style="margin-bottom:8px;font-size:14px" placeholder="Legenda da foto..." value="'+f.legenda+'" onchange="updateFoto('+i+','legenda',this.value)"><div style="display:flex;gap:8px"><select class="inp" style="flex:1;font-size:13px" onchange="updateFoto('+i+','tipo',this.value)">'+['antes','depois','detalhe','peca','outro'].map(function(t){return'<option value="'+t+'"'+(f.tipo===t?' selected':'')+'>'+t.charAt(0).toUpperCase()+t.slice(1)+'</option>';}).join('')+'</select><button class="btn btn-d" onclick="removeFoto('+i+')" style="padding:8px 12px"><i class="ti ti-trash"></i></button></div></div></div>';
-  }).join('');
+  if(!fotos.length) return '<div style="text-align:center;padding:30px;color:#9CA3AF;border:2px dashed #E5E7EB;border-radius:12px">Nenhuma foto adicionada ainda</div>';
+  var html='';
+  fotos.forEach(function(f,i){
+    var opts=['antes','depois','detalhe','peca','outro'].map(function(t){
+      return '<option value="'+t+'"'+(f.tipo===t?' selected':'')+'>'+t.charAt(0).toUpperCase()+t.slice(1)+'</option>';
+    }).join('');
+    html+='<div class="card" style="overflow:hidden;padding:0;margin-bottom:12px">';
+    html+='<img src="'+f.preview+'" style="width:100%;max-height:220px;object-fit:cover;display:block">';
+    html+='<div style="padding:12px">';
+    html+='<input class="inp" style="margin-bottom:8px;font-size:14px" placeholder="Legenda da foto..." value="'+f.legenda+'" data-fi="'+i+'" data-ff="legenda" onchange="updateFoto(+this.dataset.fi,this.dataset.ff,this.value)">';
+    html+='<div style="display:flex;gap:8px">';
+    html+='<select class="inp" style="flex:1;font-size:13px" data-fi="'+i+'" data-ff="tipo" onchange="updateFoto(+this.dataset.fi,this.dataset.ff,this.value)">'+opts+'</select>';
+    html+='<button class="btn btn-d" data-fi="'+i+'" onclick="removeFoto(+this.dataset.fi)" style="padding:8px 12px"><i class="ti ti-trash"></i></button>';
+    html+='</div></div></div>';
+  });
+  return html;
 }
+
 function addFotos(inp){
   Array.from(inp.files).forEach(function(file){
     var r=new FileReader();
@@ -797,33 +821,80 @@ function renderStep(){
   document.getElementById('btn-next').style.display=step<STEPS.length-1?'flex':'none';
   document.getElementById('btn-save').style.display=step===STEPS.length-1?'flex':'none';
   var c=document.getElementById('wizard-content');
-  var inp=function(lbl,fld,type,ph){return'<div class="field"><label class="lbl">'+lbl+'</label><input class="inp" type="'+(type||'text')+'" value="'+(formData[fld]||'')+'" placeholder="'+(ph||'')+'" onchange="formData[''+fld+'']=this.value"></div>';};
-  var sel=function(lbl,fld,opts){return'<div class="field"><label class="lbl">'+lbl+'</label><select class="inp" onchange="formData[''+fld+'']=this.value">'+opts.map(function(o){return'<option value="'+o.v+'"'+(formData[fld]===o.v?' selected':'')+'>'+o.l+'</option>';}).join('')+'</select></div>';};
-  var ta =function(lbl,fld,ph,mh){return'<div class="field"><label class="lbl">'+lbl+'</label><textarea class="inp" style="min-height:'+(mh||90)+'px" onchange="formData[''+fld+'']=this.value" placeholder="'+(ph||'')+'">'+(formData[fld]||'')+'</textarea></div>';};
+
+  // Helper: campo input com data-fld para evitar conflito de quotes
+  function inp(lbl,fld,type,ph){
+    return '<div class="field"><label class="lbl">'+lbl+'</label>'
+      +'<input class="inp" type="'+(type||'text')+'" value="'+(formData[fld]||'')+'" placeholder="'+(ph||'')+'"'
+      +' data-fld="'+fld+'" onchange="formData[this.dataset.fld]=this.value">'
+      +'</div>';
+  }
+  function sel(lbl,fld,opts){
+    var o=opts.map(function(x){
+      return '<option value="'+x.v+'"'+(formData[fld]===x.v?' selected':'')+'>'+x.l+'</option>';
+    }).join('');
+    return '<div class="field"><label class="lbl">'+lbl+'</label>'
+      +'<select class="inp" data-fld="'+fld+'" onchange="formData[this.dataset.fld]=this.value">'+o+'</select>'
+      +'</div>';
+  }
+  function ta(lbl,fld,ph,mh){
+    return '<div class="field"><label class="lbl">'+lbl+'</label>'
+      +'<textarea class="inp" style="min-height:'+(mh||90)+'px"'
+      +' data-fld="'+fld+'" onchange="formData[this.dataset.fld]=this.value"'
+      +' placeholder="'+(ph||'')+'">'+( formData[fld]||'')+'</textarea>'
+      +'</div>';
+  }
+
   if(step===0){
-    var eqO=equipamentos.map(function(e){return'<option value="'+e.id+'"'+(formData.equipamento_id===e.id?' selected':'')+'>'+e.tipo+' '+e.marca+' '+e.modelo+'</option>';}).join('');
+    var eqO=equipamentos.map(function(e){
+      return '<option value="'+e.id+'"'+(formData.equipamento_id===e.id?' selected':'')+'>'+e.tipo+' '+e.marca+' '+e.modelo+'</option>';
+    }).join('');
+    var tecOpts=tecnicos.map(function(t){
+      return '<option value="'+t.id+'"'+(formData.tecnico_id===t.id?' selected':'')+'>'+t.nome+'</option>';
+    }).join('');
+    var cliOpts=clientes.map(function(x){
+      return '<option value="'+x.id+'"'+(formData.cliente_id===x.id?' selected':'')+'>'+x.nome+'</option>';
+    }).join('');
     c.innerHTML=
-      '<div class="field"><label class="lbl">Técnico Responsável</label><select class="inp" onchange="formData['tecnico_id']=this.value"><option value="">Selecione...</option>'+tecnicos.map(function(t){return'<option value="'+t.id+'"'+(formData.tecnico_id===t.id?' selected':'')+'>'+t.nome+'</option>';}).join('')+'</select></div>'
-      +'<div class="field"><label class="lbl">Cliente</label><select class="inp" onchange="selectCliente(this.value)"><option value="">Selecione...</option>'+clientes.map(function(x){return'<option value="'+x.id+'"'+(formData.cliente_id===x.id?' selected':'')+'>'+x.nome+'</option>';}).join('')+'</select></div>'
-      +'<div id="eq-wrap" style="display:'+(equipamentos.length?'block':'none')+'"><div class="field"><label class="lbl">Equipamento</label><select class="inp" onchange="formData['equipamento_id']=this.value"><option value="">Selecione...</option>'+eqO+'</select></div></div>'
+      '<div class="field"><label class="lbl">Técnico Responsável</label>'
+      +'<select class="inp" data-fld="tecnico_id" onchange="formData[this.dataset.fld]=this.value"><option value="">Selecione...</option>'+tecOpts+'</select></div>'
+      +'<div class="field"><label class="lbl">Cliente</label>'
+      +'<select class="inp" onchange="selectCliente(this.value)"><option value="">Selecione...</option>'+cliOpts+'</select></div>'
+      +'<div id="eq-wrap" style="display:'+(equipamentos.length?'block':'none')+'">'
+      +'<div class="field"><label class="lbl">Equipamento</label>'
+      +'<select class="inp" data-fld="equipamento_id" onchange="formData[this.dataset.fld]=this.value"><option value="">Selecione...</option>'+eqO+'</select></div></div>'
       +inp('Local do Atendimento','local_atendimento','text','Ex: Fazenda São João, km 45')
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+inp('Data','data_atendimento','date')+inp('Horímetro / Km','horimetro_hodometro','text','Ex: 4520h')+'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+inp('Hora Chegada','hora_chegada','time')+inp('Hora Saída','hora_saida','time')+'</div>'
-      +sel('Tipo de Manutenção','tipo_manutencao',[{v:'corretiva',l:'🔧 Corretiva'},{v:'preventiva',l:'🔍 Preventiva'},{v:'emergencial',l:'🚨 Emergencial'},{v:'inspecao',l:'📋 Inspeção'}])
-      +sel('Status','status',[{v:'concluido',l:'✅ Concluído'},{v:'em_andamento',l:'🔄 Em andamento'},{v:'pendente_peca',l:'⏳ Pendente de peça'},{v:'aguardando_aprovacao',l:'📝 Aguardando aprovação'}]);
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+      +inp('Data','data_atendimento','date')+inp('Horímetro / Km','horimetro_hodometro','text','Ex: 4520h')+'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+      +inp('Hora Chegada','hora_chegada','time')+inp('Hora Saída','hora_saida','time')+'</div>'
+      +sel('Tipo de Manutenção','tipo_manutencao',[
+        {v:'corretiva',l:'🔧 Corretiva'},{v:'preventiva',l:'🔍 Preventiva'},
+        {v:'emergencial',l:'🚨 Emergencial'},{v:'inspecao',l:'📋 Inspeção'}
+      ])
+      +sel('Status','status',[
+        {v:'concluido',l:'✅ Concluído'},{v:'em_andamento',l:'🔄 Em andamento'},
+        {v:'pendente_peca',l:'⏳ Pendente de peça'},{v:'aguardando_aprovacao',l:'📝 Aguardando aprovação'}
+      ]);
   }
   if(step===1){
     c.innerHTML=ta('Problema Relatado pelo Operador','problema_relatado','Descreva o problema...')
       +ta('Diagnóstico Técnico','diagnostico_tecnico','Diagnóstico identificado...')
       +ta('Serviços Executados','servicos_executados','Descreva os serviços...')
       +ta('Peças Substituídas','pecas_substituidas','Ex: Filtro de óleo (1un)...',70)
-      +ta('Observações','observacoes','',70)+ta('Recomendações','recomendacoes','Próximas manutenções...',70)
+      +ta('Observações','observacoes','',70)
+      +ta('Recomendações','recomendacoes','Próximas manutenções...',70)
       +inp('Responsável pelo Recebimento','nome_responsavel_cliente','text','Nome de quem assina');
   }
   if(step===2){
     var cats=[...new Set(CK.map(function(i){return i.c;}))];
-    var rc=[{v:'ok',l:'✓ OK',bg:'#F0FDF4',col:'#15803D',bc:'#BBF7D0'},{v:'atencao',l:'⚠ Atenção',bg:'#FFFBEB',col:'#B45309',bc:'#FDE68A'},{v:'critico',l:'✕ Crítico',bg:'#FEF2F2',col:'#DC2626',bc:'#FECACA'},{v:'nao_aplicavel',l:'N/A',bg:'#F9FAFB',col:'#6B7280',bc:'#E5E7EB'}];
-    var html='<p style="font-size:13px;color:#6B7280;margin-bottom:16px">Avalie cada item inspecionado durante o atendimento:</p>';
+    var rc=[
+      {v:'ok',    l:'✓ OK',    bg:'#F0FDF4',col:'#15803D',bc:'#BBF7D0'},
+      {v:'atencao',l:'⚠ Atenção',bg:'#FFFBEB',col:'#B45309',bc:'#FDE68A'},
+      {v:'critico',l:'✕ Crítico',bg:'#FEF2F2',col:'#DC2626',bc:'#FECACA'},
+      {v:'nao_aplicavel',l:'N/A',bg:'#F9FAFB',col:'#6B7280',bc:'#E5E7EB'}
+    ];
+    var html='<p style="font-size:13px;color:#6B7280;margin-bottom:16px">Avalie cada item inspecionado:</p>';
     cats.forEach(function(cat){
       html+='<div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.1em;padding:8px 12px;background:#F3F4F6;border-radius:8px;border:1px solid #E5E7EB;margin-bottom:8px;margin-top:16px">'+cat+'</div>';
       checklist.forEach(function(item,i){
@@ -834,10 +905,15 @@ function renderStep(){
         html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px'+(showObs?';margin-bottom:10px':'')+'">'; 
         rc.forEach(function(r){
           var a=item.resultado===r.v;
-          html+='<button onclick="setCheck('+i+','resultado',''+r.v+'')" style="padding:8px 2px;font-size:11px;font-weight:600;border-radius:8px;cursor:pointer;border:1.5px solid '+(a?r.bc:'#E5E7EB')+';background:'+(a?r.bg:'#fff')+';color:'+(a?r.col:'#9CA3AF')+'">'+r.l+'</button>';
+          html+='<button data-ci="'+i+'" data-cv="'+r.v+'" onclick="setCheck(+this.dataset.ci,this.dataset.cf,this.dataset.cv)"'
+            +' style="padding:8px 2px;font-size:11px;font-weight:600;border-radius:8px;cursor:pointer;'
+            +'border:1.5px solid '+(a?r.bc:'#E5E7EB')+';background:'+(a?r.bg:'#fff')+';color:'+(a?r.col:'#9CA3AF')+'">'+r.l+'</button>';
         });
         html+='</div>';
-        if(showObs) html+='<input class="inp" style="font-size:13px" placeholder="Descreva a observação..." value="'+item.observacao+'" onchange="setCheck('+i+','observacao',this.value)">';
+        if(showObs){
+          html+='<input class="inp" style="font-size:13px" placeholder="Descreva a observação..." value="'+item.observacao+'"'
+            +' data-ci="'+i+'" data-cf="observacao" onchange="setCheck(+this.dataset.ci,this.dataset.cf,this.value)">';
+        }
         html+='</div>';
       });
     });
@@ -845,44 +921,28 @@ function renderStep(){
   }
   if(step===3){
     c.innerHTML='<input type="file" id="fi" accept="image/*" multiple capture="environment" style="display:none" onchange="addFotos(this)">'
-      +'<div onclick="document.getElementById('fi').click()" style="border:2px dashed #E07015;border-radius:12px;padding:32px 20px;text-align:center;cursor:pointer;margin-bottom:20px;background:#FFF7ED">'
+      +'<div onclick="document.getElementById("fi").click()" style="border:2px dashed #E07015;border-radius:12px;padding:32px 20px;text-align:center;cursor:pointer;margin-bottom:20px;background:#FFF7ED">'
       +'<i class="ti ti-camera" style="font-size:40px;color:#E07015;display:block;margin-bottom:10px"></i>'
       +'<div style="font-weight:600;color:#E07015;font-size:16px">Tirar foto / selecionar galeria</div>'
-      +'<div style="font-size:13px;color:#9CA3AF;margin-top:4px">Toque para adicionar fotos do atendimento</div>'
+      +'<div style="font-size:13px;color:#9CA3AF;margin-top:4px">Toque para adicionar fotos</div>'
       +'</div><div id="fl">'+renderFotos()+'</div>';
   }
   if(step===4){
     c.innerHTML='<p style="font-size:13px;color:#6B7280;margin-bottom:20px">Colete as assinaturas antes de finalizar a OS.</p>'
-      +'<div style="margin-bottom:24px"><div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><span><i class="ti ti-user" style="margin-right:6px;color:#E07015"></i>Assinatura do Técnico</span><button onclick="limparCanvas('canvas-tec')" style="font-size:12px;color:#6B7280;background:none;border:none;cursor:pointer;text-decoration:underline">Limpar</button></div>'
+      +'<div style="margin-bottom:24px">'
+      +'<div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
+      +'<span><i class="ti ti-user" style="margin-right:6px;color:#E07015"></i>Assinatura do Técnico</span>'
+      +'<button onclick="limparCanvas("canvas-tec")" style="font-size:12px;color:#6B7280;background:none;border:none;cursor:pointer;text-decoration:underline">Limpar</button></div>'
       +'<canvas id="canvas-tec" width="600" height="160" style="width:100%;height:160px;border:1.5px solid #E5E7EB;border-radius:10px;background:#fff;touch-action:none;cursor:crosshair;display:block"></canvas></div>'
-      +'<div><div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><span><i class="ti ti-building" style="margin-right:6px;color:#E07015"></i>Assinatura do Responsável pelo Recebimento</span><button onclick="limparCanvas('canvas-cli')" style="font-size:12px;color:#6B7280;background:none;border:none;cursor:pointer;text-decoration:underline">Limpar</button></div>'
+      +'<div>'
+      +'<div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
+      +'<span><i class="ti ti-building" style="margin-right:6px;color:#E07015"></i>Assinatura do Responsável pelo Recebimento</span>'
+      +'<button onclick="limparCanvas("canvas-cli")" style="font-size:12px;color:#6B7280;background:none;border:none;cursor:pointer;text-decoration:underline">Limpar</button></div>'
       +'<canvas id="canvas-cli" width="600" height="160" style="width:100%;height:160px;border:1.5px solid #E5E7EB;border-radius:10px;background:#fff;touch-action:none;cursor:crosshair;display:block"></canvas></div>';
     setTimeout(function(){initPad('canvas-tec');initPad('canvas-cli');},50);
   }
 }
-function limparCanvas(id){var cv=document.getElementById(id);if(cv)cv.getContext('2d').clearRect(0,0,cv.width,cv.height);}
-function initPad(id){
-  var cv=document.getElementById(id);if(!cv)return;
-  var ctx=cv.getContext('2d');
-  ctx.strokeStyle='#111827';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
-  var drawing=false,lx=0,ly=0;
-  function pos(e){var r=cv.getBoundingClientRect(),sx=cv.width/r.width,sy=cv.height/r.height;if(e.touches)return{x:(e.touches[0].clientX-r.left)*sx,y:(e.touches[0].clientY-r.top)*sy};return{x:(e.clientX-r.left)*sx,y:(e.clientY-r.top)*sy};}
-  function start(e){e.preventDefault();drawing=true;var p=pos(e);lx=p.x;ly=p.y;ctx.beginPath();ctx.arc(p.x,p.y,1.2,0,Math.PI*2);ctx.fillStyle='#111827';ctx.fill();}
-  function move(e){e.preventDefault();if(!drawing)return;var p=pos(e);ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(p.x,p.y);ctx.stroke();lx=p.x;ly=p.y;}
-  function stop(){drawing=false;}
-  cv.addEventListener('mousedown',start);cv.addEventListener('mousemove',move);cv.addEventListener('mouseup',stop);cv.addEventListener('mouseleave',stop);
-  cv.addEventListener('touchstart',start,{passive:false});cv.addEventListener('touchmove',move,{passive:false});cv.addEventListener('touchend',stop);
-}
-function getSignature(id){
-  var cv=document.getElementById(id);if(!cv)return null;
-  var ctx=cv.getContext('2d'),px=ctx.getImageData(0,0,cv.width,cv.height).data;
-  var has=false;for(var i=3;i<px.length;i+=4){if(px[i]>0){has=true;break;}}
-  return has?cv.toDataURL('image/png'):null;
-}
 
-// ════════════════════════════════════════════════════════════
-// RASCUNHO
-// ════════════════════════════════════════════════════════════
 async function salvarRascunho(){
   var btn=document.getElementById('btn-rascunho');btn.disabled=true;btn.innerHTML='Salvando...';
   try{
