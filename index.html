@@ -596,7 +596,7 @@ async function showDash(){
     document.getElementById('sh').textContent=d.filter(function(a){return a.data_atendimento===hj;}).length;
     document.getElementById('sp').textContent=d.filter(function(a){return a.status!=='concluido'&&a.status!=='rascunho';}).length;
     renderAtendimentos(d);
-    preCachearDados();
+    var _now=Date.now();if(!window._lastPre||_now-window._lastPre>300000){window._lastPre=_now;preCachearDados();}
   }catch(e){
     document.getElementById('dash-list').innerHTML='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px;color:#DC2626;font-size:13px"><i class="ti ti-alert-circle" style="margin-right:6px"></i>Erro: '+e.message+'</div>';
   }
@@ -736,7 +736,9 @@ async function showNova(){
   checklist=CK.map(function(c,i){return Object.assign({},c,{resultado:'ok',observacao:'',ordem:i});});
   formData={tecnico_id:'',cliente_id:'',equipamento_id:'',local_atendimento:'',data_atendimento:new Date().toISOString().slice(0,10),hora_chegada:new Date().toTimeString().slice(0,5),hora_saida:'',horimetro_hodometro:'',tipo_manutencao:'corretiva',status:'concluido',problema_relatado:'',diagnostico_tecnico:'',servicos_executados:'',pecas_substituidas:'',observacoes:'',recomendacoes:'',nome_responsavel_cliente:''};
   try{[tecnicos,clientes]=await Promise.all([sbGet('tecnicos','?select=id,nome&order=nome'),sbGet('clientes','?select=id,nome&order=nome')]);}catch(e){}
-  equipamentos=[];showScreen('scr-nova');renderStep();
+  equipamentos=[];
+  if(!navigator.onLine&&(!tecnicos.length||!clientes.length)){toast('Sem dados cacheados. Abra o app online ao menos uma vez para usar offline.','warning',7000);}
+  showScreen('scr-nova');renderStep();
 }
 async function editarOS(os){
   step=0;fotos=[];currentOSId=os.id;
@@ -987,7 +989,17 @@ if('serviceWorker' in navigator){
 }
 window.addEventListener('online',  function(){atualizarStatusOffline();preCachearDados();});
 window.addEventListener('offline', function(){atualizarStatusOffline();});
-window.addEventListener('load',    function(){atualizarStatusOffline();atualizarBadgePendentes();preCachearDados();});
+window.addEventListener('load', function(){
+  atualizarStatusOffline();
+  atualizarBadgePendentes();
+  preCachearDados();
+  // Solicitar armazenamento persistente — evita que o SO apague o cache offline
+  if(navigator.storage && navigator.storage.persist){
+    navigator.storage.persist().then(function(granted){
+      console.log('[storage] Dados persistentes:', granted ? 'SIM' : 'NÃO — OS pode limpar cache');
+    });
+  }
+});
 
 showDash();
 

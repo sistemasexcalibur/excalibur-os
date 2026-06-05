@@ -1,62 +1,72 @@
+// Service Worker — Excalibur Campo OS
 const CACHE = 'excalibur-os-v1';
-const ASSETS = [
-  './index.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css',
-  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/fonts/tabler-icons.woff2',
-  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/fonts/tabler-icons.woff',
-  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/fonts/tabler-icons.ttf'
-];
 
-// Instala e faz cache de todos os assets
-self.addEventListener('install', e => {
+// Apenas arquivos LOCAIS no pre-cache (garantia de instalar sempre)
+// Assets CDN são cacheados lazily na primeira visita online
+const OWN = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+
+self.addEventListener('install', function(e) {
   e.waitUntil(
-    caches.open(CACHE)
-      .then(cache => cache.addAll(ASSETS.map(url => new Request(url, {cache: 'reload'}))))
-      .catch(err => console.warn('Cache parcial:', err))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE).then(function(cache) {
+      // Cada arquivo em separado — falha isolada não cancela os outros
+      return Promise.allSettled(
+        OWN.map(function(url) {
+          return cache.add(url).catch(function(err) {
+            console.warn('[SW] Falha ao cachear:', url, err.message);
+          });
+        })
+      );
+    }).then(function() { return self.skipWaiting(); })
   );
 });
 
-// Limpa caches antigos
-self.addEventListener('activate', e => {
+self.addEventListener('activate', function(e) {
   e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
+    caches.keys().then(function(keys) {
+      return Promise.all(
+        keys.filter(function(k) { return k !== CACHE; })
+            .map(function(k) { return caches.delete(k); })
+      );
+    }).then(function() { return self.clients.claim(); })
   );
 });
 
-// Intercepta requisições
-self.addEventListener('fetch', e => {
-  const url = e.request.url;
+self.addEventListener('fetch', function(e) {
+  var url = e.request.url;
 
-  // Supabase API: tenta rede, não faz cache (os dados vêm do IndexedDB)
-  if (url.includes('supabase.co')) {
+  // Supabase: tenta rede — JS layer cuida do offline via IndexedDB
+  if (url.indexOf('supabase.co') !== -1) {
     e.respondWith(
-      fetch(e.request).catch(() =>
-        new Response(JSON.stringify([]), {
+      fetch(e.request).catch(function() {
+        return new Response(JSON.stringify([]), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
-        })
-      )
+        });
+      })
     );
     return;
   }
 
-  // Tudo mais: cache first, depois rede
+  // Tudo mais: cache-first + adiciona ao cache na primeira visita online
   e.respondWith(
-    caches.match(e.request).then(cached => {
+    caches.match(e.request).then(function(cached) {
       if (cached) return cached;
-      return fetch(e.request).then(response => {
-        if (response && response.status === 200 && response.type !== 'opaque') {
-          const clone = response.clone();
-          caches.open(CACHE).then(cache => cache.put(e.request, clone));
+
+      return fetch(e.request).then(function(response) {
+        // Cacheia respostas válidas (básicas = mesmo origin, cors = CDN com headers)
+        if (response && response.status === 200 &&
+            (response.type === 'basic' || response.type === 'cors')) {
+          var clone = response.clone();
+          caches.open(CACHE).then(function(c) { c.put(e.request, clone); }).catch(function(){});
         }
         return response;
-      }).catch(() => caches.match('./index.html'));
+      }).catch(function() {
+        // Offline e não está em cache — fallback para o app shell
+        if (e.request.destination === 'document') {
+          return caches.match('./index.html');
+        }
+        return new Response('', { status: 503, statusText: 'Offline' });
+      });
     })
   );
 });
