@@ -826,6 +826,50 @@ async function editarOS(os){
   showScreen('scr-nova');renderStep();
 }
 
+
+function renderBars(){
+  document.getElementById('step-bars').innerHTML=STEPS.map(function(_,i){
+    return '<div style="flex:1;height:4px;border-radius:4px;background:'+(i<=step?'#E07015':'#E5E7EB')+';transition:background .3s"></div>';
+  }).join('');
+  document.getElementById('step-title').textContent=STEPS[step];
+  document.getElementById('step-counter').textContent='Passo '+(step+1)+' de '+STEPS.length;
+}
+function setCheck(i,k,v){checklist[i][k]=v;renderStep();}
+function updateFoto(i,k,v){if(fotos[i])fotos[i][k]=v;}
+function removeFoto(i){
+  fotos.splice(i,1);
+  var fl=document.getElementById('fl');
+  if(fl) fl.innerHTML=renderFotos();
+}
+function renderFotos(){
+  if(!fotos.length) return '<div style="text-align:center;padding:30px;color:#9CA3AF;border:2px dashed #E5E7EB;border-radius:12px">Nenhuma foto adicionada ainda</div>';
+  var html='';
+  fotos.forEach(function(f,i){
+    var opts=['antes','depois','detalhe','peca','outro'].map(function(t){
+      return '<option value="'+t+'"'+(f.tipo===t?' selected':'')+'>'+t.charAt(0).toUpperCase()+t.slice(1)+'</option>';
+    }).join('');
+    html+='<div class="card" style="overflow:hidden;padding:0;margin-bottom:12px">'
+      +'<img src="'+f.preview+'" style="width:100%;max-height:220px;object-fit:cover;display:block">'
+      +'<div style="padding:12px">'
+      +'<input class="inp" style="margin-bottom:8px;font-size:14px" placeholder="Legenda da foto..." value="'+(f.legenda||'')+'" oninput="fotos['+i+'].legenda=this.value">'
+      +'<div style="display:flex;gap:8px">'
+      +'<select class="inp" style="flex:1;font-size:13px" onchange="fotos['+i+'].tipo=this.value">'+opts+'</select>'
+      +'<button class="btn btn-d" onclick="removeFoto('+i+')" style="padding:8px 12px"><i class="ti ti-trash"></i></button>'
+      +'</div></div></div>';
+  });
+  return html;
+}
+function addFotos(inp){
+  Array.from(inp.files).forEach(function(file){
+    var r=new FileReader();
+    r.onload=function(ev){
+      fotos.push({file:file,preview:ev.target.result,legenda:'',tipo:'detalhe'});
+      var fl=document.getElementById('fl');
+      if(fl) fl.innerHTML=renderFotos();
+    };
+    r.readAsDataURL(file);
+  });
+}
 async function selectCliente(id){
   formData.cliente_id=id;formData.equipamento_id='';
   if(!id){equipamentos=[];var w=document.getElementById('eq-wrap');if(w)w.style.display='none';return;}
@@ -969,6 +1013,38 @@ function renderStep(){
   }
 }
 
+
+function limparCanvas(id){
+  var cv=document.getElementById(id);
+  if(cv) cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
+}
+function initPad(id){
+  var cv=document.getElementById(id);
+  if(!cv)return;
+  var ctx=cv.getContext('2d');
+  ctx.strokeStyle='#111827';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
+  var drawing=false,lx=0,ly=0;
+  function pos(e){
+    var r=cv.getBoundingClientRect(),sx=cv.width/r.width,sy=cv.height/r.height;
+    if(e.touches) return{x:(e.touches[0].clientX-r.left)*sx,y:(e.touches[0].clientY-r.top)*sy};
+    return{x:(e.clientX-r.left)*sx,y:(e.clientY-r.top)*sy};
+  }
+  function start(e){e.preventDefault();drawing=true;var p=pos(e);lx=p.x;ly=p.y;ctx.beginPath();ctx.arc(p.x,p.y,1.2,0,Math.PI*2);ctx.fillStyle='#111827';ctx.fill();}
+  function move(e){e.preventDefault();if(!drawing)return;var p=pos(e);ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(p.x,p.y);ctx.stroke();lx=p.x;ly=p.y;}
+  function stop(){drawing=false;}
+  cv.addEventListener('mousedown',start);cv.addEventListener('mousemove',move);
+  cv.addEventListener('mouseup',stop);cv.addEventListener('mouseleave',stop);
+  cv.addEventListener('touchstart',start,{passive:false});
+  cv.addEventListener('touchmove',move,{passive:false});
+  cv.addEventListener('touchend',stop);
+}
+function getSignature(id){
+  var cv=document.getElementById(id);
+  if(!cv)return null;
+  var ctx=cv.getContext('2d'),px=ctx.getImageData(0,0,cv.width,cv.height).data;
+  for(var i=3;i<px.length;i+=4){if(px[i]>0)return cv.toDataURL('image/png');}
+  return null;
+}
 async function salvarRascunho(){
   var btn=document.getElementById('btn-rascunho');btn.disabled=true;btn.innerHTML='Salvando...';
   try{
