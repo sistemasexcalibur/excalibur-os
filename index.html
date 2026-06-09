@@ -155,10 +155,10 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
     </div>
     <div style="font-size:12px;font-weight:600;color:#9CA3AF" id="step-counter">Passo 1 de 4</div>
   </div>
-  <div style="background:#fff;padding:12px 16px 6px;border-bottom:1px solid #E5E7EB">
+  <div id="step-bars-wrap" style="background:#fff;padding:12px 16px 6px;border-bottom:1px solid #E5E7EB;position:fixed;top:60px;left:0;right:0;z-index:150">
     <div style="display:flex;gap:6px" id="step-bars"></div>
   </div>
-  <div id="wizard-content" style="padding:16px;padding-top:76px;padding-bottom:90px"></div>
+  <div id="wizard-content" style="padding:16px;padding-top:104px;padding-bottom:120px"></div>
   <div class="no-print" style="position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #E5E7EB;padding:8px 16px 12px;box-shadow:0 -2px 8px rgba(0,0,0,.06)">
     <div style="text-align:center;margin-bottom:6px">
       <button id="btn-rascunho" onclick="salvarRascunho()" style="background:none;border:none;color:#7C3AED;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho</button>
@@ -304,6 +304,17 @@ async function cacheSet(k,v){
       tx.onerror   =function(e){rej(e.target.error);};
     });
   }catch(e){console.warn('[cache] set "'+k+'":',e.message);return false;}
+}
+async function cacheDel(k){
+  try{
+    var db=await abrirDB();
+    return new Promise(function(res,rej){
+      var tx=db.transaction('cache','readwrite');
+      tx.objectStore('cache').delete(k);
+      tx.oncomplete=function(){res(true);};
+      tx.onerror=function(e){rej(e.target.error);};
+    });
+  }catch(e){return false;}
 }
 async function filaAdd(item){
   try{
@@ -484,35 +495,65 @@ function confirmar(msg,sim,nao){
 // ════════════════════════════════════════════════════════════
 async function atualizarBadgePendentes(){
   var p=await filaGetAll();
+  var nRasc=0;
+  try{
+    var db2=await abrirDB();
+    var todas=await new Promise(function(r){
+      var req=db2.transaction('cache','readonly').objectStore('cache').getAllKeys();
+      req.onsuccess=function(e){r(e.target.result||[]);};req.onerror=function(){r([]);};
+    });
+    nRasc=todas.filter(function(k){return String(k).startsWith('rascunho:RASC_');}).length;
+  }catch(e){}
+  var total=p.length+nRasc;
   var b=document.getElementById('badge-pendentes');
   if(!b)return;
-  if(p.length>0){b.style.display='inline-block';b.textContent=p.length+' pendente'+(p.length>1?'s':'')+' — sincronizar';b.style.background='#7C3AED';}
-  else b.style.display='none';
+  if(total>0){
+    b.style.display='inline-block';
+    b.textContent=total+' pendente'+(total>1?'s':'')+' — sincronizar';
+    b.style.background='#7C3AED';
+  }else b.style.display='none';
 }
-async function salvarOSOffline(){
+async function salvarOSOffline(sigTec,sigCli){
   var dados=Object.assign({},formData);
   ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!dados[f])dados[f]=null;});
-  var sigTec=getSignature('canvas-tec'),sigCli=getSignature('canvas-cli');
+  if(sigTec===undefined)sigTec=getSignature('canvas-tec');
+  if(sigCli===undefined)sigCli=getSignature('canvas-cli');
   if(sigTec)dados.assinatura_tecnico=sigTec;
   if(sigCli)dados.assinatura_cliente=sigCli;
   var tmpId='OFFLINE_'+Date.now();
-  var pkg={
-    tmpId:tmpId,
-    atendimento:Object.assign({},dados,{id:tmpId,numero_os:'PEND-'+Date.now(),_pendente:true}),
-    checklist:checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem}}),
-    fotos:fotos.map(function(f){return{preview:f.preview,legenda:f.legenda,tipo:f.tipo,isExisting:f.isExisting||false}})
+  var pkg={tmpId:tmpId,
+    atendimento:Object.assign({},dados,{id:tmpId,numero_os:'PENDENTE',_pendente:true}),
+    checklist:checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem};}),
+    fotos:fotos.map(function(f){return{preview:f.preview,legenda:f.legenda,tipo:f.tipo,isExisting:f.isExisting||false};}),
+    criadoEm:new Date().toISOString()
   };
   await filaAdd(pkg);
+  if(currentOSId&&String(currentOSId).startsWith('RASC_')) await cacheDel('rascunho:'+currentOSId);
   await atualizarBadgePendentes();
   return pkg.atendimento;
 }
 async function sincronizarFila(){
-  var p=await filaGetAll();
-  if(!p.length){toast('Nenhuma OS pendente','info');return;}
   if(!navigator.onLine){toast('Sem conexão com a internet','warning');return;}
+
+  var p=await filaGetAll();
+  // Rascunhos locais (RASC_) também entram no sync
+  var chavesRasc=[];
+  try{
+    var db2=await abrirDB();
+    var todas=await new Promise(function(r){
+      var req=db2.transaction('cache','readonly').objectStore('cache').getAllKeys();
+      req.onsuccess=function(e){r(e.target.result||[]);};req.onerror=function(){r([]);};
+    });
+    chavesRasc=todas.filter(function(k){return String(k).startsWith('rascunho:RASC_');});
+  }catch(e){}
+
+  if(!p.length&&!chavesRasc.length){toast('Nenhuma OS pendente','info');return;}
+
   var b=document.getElementById('badge-pendentes');
   if(b){b.textContent='Sincronizando...';b.style.background='#E07015';}
   var ok=0,erros=0;
+
+  // 1. OS finalizadas offline (fila)
   for(var i=0;i<p.length;i++){
     var pkg=p[i];
     try{
@@ -520,24 +561,50 @@ async function sincronizarFila(){
       var de=Object.assign({},pkg.atendimento,{numero_os:no});
       delete de.id;delete de._pendente;
       ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!de[f])de[f]=null;});
-      var r=await fetch(SB+'/rest/v1/atendimentos',{method:'POST',headers:H,body:JSON.stringify(de)});
-      if(!r.ok)throw new Error(await r.text());
-      var at=(await r.json())[0];
+      var at=(await sbPost('atendimentos',de))[0];
       if(pkg.checklist&&pkg.checklist.length){
-        await fetch(SB+'/rest/v1/checklist_itens',{method:'POST',headers:H,body:JSON.stringify(pkg.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at.id})}))});
+        await sbPost('checklist_itens',pkg.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at.id});}));
       }
       if(pkg.fotos){
         for(var j=0;j<pkg.fotos.length;j++){
           var f=pkg.fotos[j];
-          if(!f.isExisting) await fetch(SB+'/rest/v1/fotos',{method:'POST',headers:H,body:JSON.stringify({atendimento_id:at.id,url:f.preview,legenda:f.legenda,tipo:f.tipo,ordem:j})});
+          if(!f.isExisting) await sbPost('fotos',{atendimento_id:at.id,url:f.preview,legenda:f.legenda,tipo:f.tipo,ordem:j});
         }
       }
       await filaDelete(pkg.id);ok++;
-    }catch(e){console.error('[sync] erro:',e.message);erros++;}
+    }catch(e){console.error('[sync fila]',e.message);erros++;}
   }
+
+  // 2. Rascunhos locais (RASC_) → Supabase com status rascunho
+  for(var k=0;k<chavesRasc.length;k++){
+    try{
+      var rp=await cacheGet(String(chavesRasc[k]));
+      if(!rp||!rp.atendimento)continue;
+      var no2=await sbRpc('gerar_numero_os');
+      var de2=Object.assign({},rp.atendimento,{numero_os:no2,status:'rascunho'});
+      delete de2.id;delete de2._pendente;
+      ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!de2[f])de2[f]=null;});
+      var at2=(await sbPost('atendimentos',de2))[0];
+      if(rp.checklist&&rp.checklist.length){
+        await sbPost('checklist_itens',rp.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at2.id});}));
+      }
+      if(rp.fotos){
+        for(var j2=0;j2<rp.fotos.length;j2++){
+          var f2=rp.fotos[j2];
+          if(!f2.isExisting) await sbPost('fotos',{atendimento_id:at2.id,url:f2.preview,legenda:f2.legenda,tipo:f2.tipo,ordem:j2});
+        }
+      }
+      await cacheDel(String(chavesRasc[k]));ok++;
+    }catch(e){console.error('[sync rasc]',e.message);erros++;}
+  }
+
   await atualizarBadgePendentes();
-  ok>0?toast(ok+' OS sincronizada'+(ok>1?'s':'')+' com sucesso!'+(erros>0?' ('+erros+' com erro)':''),'success'):toast('Erro ao sincronizar','error');
-  if(ok>0) showDash();
+  if(ok>0){
+    toast(ok+' registro'+(ok>1?'s':'')+' sincronizado'+(ok>1?'s':'')+'!'+(erros>0?' ('+erros+' com erro)':''),'success');
+    showDash();
+  }else if(erros>0){
+    toast('Erro ao sincronizar — tente novamente','error');
+  }
 }
 function atualizarStatusOffline(){
   var b=document.getElementById('offline-banner');
@@ -859,15 +926,34 @@ function renderFotos(){
   });
   return html;
 }
+function comprimirFoto(file,cb){
+  var img=new Image();
+  var fr=new FileReader();
+  fr.onload=function(ev){
+    img.onload=function(){
+      var MAX=1280;
+      var w=img.width,h=img.height;
+      if(w>MAX||h>MAX){
+        if(w>h){h=Math.round(h*MAX/w);w=MAX;}
+        else{w=Math.round(w*MAX/h);h=MAX;}
+      }
+      var cv=document.createElement('canvas');
+      cv.width=w;cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      cb(cv.toDataURL('image/jpeg',0.72));
+    };
+    img.onerror=function(){cb(ev.target.result);};
+    img.src=ev.target.result;
+  };
+  fr.readAsDataURL(file);
+}
 function addFotos(inp){
   Array.from(inp.files).forEach(function(file){
-    var r=new FileReader();
-    r.onload=function(ev){
-      fotos.push({file:file,preview:ev.target.result,legenda:'',tipo:'detalhe'});
+    comprimirFoto(file,function(dataUrl){
+      fotos.push({file:file,preview:dataUrl,legenda:'',tipo:'detalhe'});
       var fl=document.getElementById('fl');
       if(fl) fl.innerHTML=renderFotos();
-    };
-    r.readAsDataURL(file);
+    });
   });
 }
 async function selectCliente(id){
@@ -1047,38 +1133,63 @@ function getSignature(id){
 }
 async function salvarRascunho(){
   var btn=document.getElementById('btn-rascunho');btn.disabled=true;btn.innerHTML='Salvando...';
-  try{
-    var dados=Object.assign({},formData);
-    ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!dados[f])dados[f]=null;});
-    dados.status='rascunho';
 
-    if(!navigator.onLine){
-      var tmpId=currentOSId||('RASC_'+Date.now());
-      var pkg={tmpId:tmpId,isRascunho:true,criadoEm:new Date().toISOString(),
-        atendimento:Object.assign({},dados,{id:tmpId,numero_os:'RASCUNHO-'+tmpId,_pendente:true}),
-        checklist:checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem};}),
-        fotos:fotos.map(function(f){return{preview:f.preview,legenda:f.legenda,tipo:f.tipo,isExisting:f.isExisting||false};})
-      };
-      await cacheSet('rascunho:'+tmpId,pkg);
-      currentOSId=tmpId;
-      toast('Rascunho salvo localmente — sincronizado ao conectar','success');
-      btn.innerHTML='<i class="ti ti-check" style="margin-right:4px"></i>Rascunho salvo!';
-      setTimeout(function(){btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';},2500);
-      return;
-    }
+  function btnOk(){
+    btn.innerHTML='<i class="ti ti-check" style="margin-right:4px"></i>Rascunho salvo!';
+    setTimeout(function(){btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';},2500);
+  }
+  function btnReset(){
+    btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';
+  }
+
+  var dados=Object.assign({},formData);
+  ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!dados[f])dados[f]=null;});
+  dados.status='rascunho';
+
+  async function salvarLocalRascunho(){
+    var tmpId=(currentOSId&&String(currentOSId).startsWith('RASC_'))?currentOSId:('RASC_'+Date.now());
+    var pkg={tmpId:tmpId,isRascunho:true,criadoEm:new Date().toISOString(),
+      atendimento:Object.assign({},dados,{id:tmpId,numero_os:'RASCUNHO',_pendente:true}),
+      checklist:checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem};}),
+      fotos:fotos.map(function(f){return{preview:f.preview,legenda:f.legenda,tipo:f.tipo,isExisting:f.isExisting||false};})
+    };
+    await cacheSet('rascunho:'+tmpId,pkg);
+    currentOSId=tmpId;
+    toast('Rascunho salvo no dispositivo','success');
+    await atualizarBadgePendentes();
+    btnOk();
+  }
+
+  try{
+    if(!navigator.onLine){await salvarLocalRascunho();return;}
+
+    // ONLINE: salvar no Supabase
+    var rascLocalAntigo=(currentOSId&&String(currentOSId).startsWith('RASC_'))?currentOSId:null;
     var atId;
-    if(currentOSId&&!currentOSId.startsWith('RASC_')){
-      await sbPatch('atendimentos',currentOSId,dados);atId=currentOSId;
+    if(currentOSId&&!String(currentOSId).startsWith('RASC_')){
+      await sbPatch('atendimentos',currentOSId,dados);
+      atId=currentOSId;
     }else{
       var no=await sbRpc('gerar_numero_os');dados.numero_os=no;
-      var at=(await sbPost('atendimentos',dados))[0];atId=at.id;currentOSId=atId;
+      var at=(await sbPost('atendimentos',dados))[0];
+      atId=at.id;
     }
     await sbDelete('checklist_itens','atendimento_id=eq.'+atId);
     if(checklist.length) await sbPost('checklist_itens',checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem,atendimento_id:atId};}));
-    if(currentOSId&&currentOSId.startsWith('RASC_')) await cacheSet('rascunho:'+currentOSId,null);
-    btn.innerHTML='<i class="ti ti-check" style="margin-right:4px"></i>Rascunho salvo!';
-    setTimeout(function(){btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';},2500);
-  }catch(e){dialogo('Erro: '+e.message,'error');btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';}
+    // Limpar rascunho local ANTES de sobrescrever currentOSId (bug fix)
+    if(rascLocalAntigo) await cacheDel('rascunho:'+rascLocalAntigo);
+    currentOSId=atId;
+    toast('Rascunho salvo!','success');
+    btnOk();
+  }catch(e){
+    var msg=String(e.message||e);
+    var isNet=msg.indexOf('Failed to fetch')!==-1||msg.indexOf('NetworkError')!==-1||msg.indexOf('Load failed')!==-1;
+    if(isNet){
+      try{await salvarLocalRascunho();return;}catch(e2){}
+    }
+    dialogo('Erro ao salvar rascunho: '+msg,'error');
+    btnReset();
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1086,36 +1197,58 @@ async function salvarRascunho(){
 // ════════════════════════════════════════════════════════════
 async function salvarOS(){
   var btn=document.getElementById('btn-save');btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Salvando...';
+  var sigTec=getSignature('canvas-tec'),sigCli=getSignature('canvas-cli');
+
+  async function salvarLocal(){
+    var atOff=await salvarOSOffline(sigTec,sigCli);
+    currentOS=atOff;
+    toast('OS salva no dispositivo — enviada automaticamente quando houver conexão','warning',5500);
+    showDash();
+  }
+
   try{
-    if(!navigator.onLine){
-      var atOff=await salvarOSOffline();currentOS=atOff;
-      toast('Sem conexão — OS salva localmente e sincronizada ao conectar','warning',5000);
-      showDash();return;
-    }
+    if(!navigator.onLine){await salvarLocal();return;}
+
     var dados=Object.assign({},formData);
     ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!dados[f])dados[f]=null;});
-    var sigTec=getSignature('canvas-tec'),sigCli=getSignature('canvas-cli');
-    if(sigTec)dados.assinatura_tecnico=sigTec;if(sigCli)dados.assinatura_cliente=sigCli;
+    if(sigTec)dados.assinatura_tecnico=sigTec;
+    if(sigCli)dados.assinatura_cliente=sigCli;
+
     var atObj;
-    if(currentOSId){
+    if(currentOSId&&!String(currentOSId).startsWith('RASC_')){
       await sbPatch('atendimentos',currentOSId,dados);
       await sbDelete('checklist_itens','atendimento_id=eq.'+currentOSId);
-      if(checklist.length) await sbPost('checklist_itens',checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem,atendimento_id:currentOSId}}));
+      if(checklist.length) await sbPost('checklist_itens',checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem,atendimento_id:currentOSId};}));
       var novas=fotos.filter(function(f){return!f.isExisting;});
-      for(var i=0;i<novas.length;i++){var url=novas[i].preview;try{var ext=novas[i].file.name.split('.').pop();url=await sbUp(currentOSId+'/'+Date.now()+'.'+ext,novas[i].file);}catch(e){}await sbPost('fotos',{atendimento_id:currentOSId,url:url,legenda:novas[i].legenda,tipo:novas[i].tipo,ordem:i});}
+      for(var i=0;i<novas.length;i++){
+        var url=novas[i].preview;
+        try{var ext=(novas[i].file&&novas[i].file.name?novas[i].file.name.split('.').pop():'jpg');url=await sbUp(currentOSId+'/'+Date.now()+'.'+ext,novas[i].file);}catch(e){}
+        await sbPost('fotos',{atendimento_id:currentOSId,url:url,legenda:novas[i].legenda,tipo:novas[i].tipo,ordem:i});
+      }
       atObj=Object.assign({},dados,{id:currentOSId});
     }else{
+      var rascLocalId=currentOSId;
       var no=await sbRpc('gerar_numero_os');dados.numero_os=no;
       var at=(await sbPost('atendimentos',dados))[0];
-      if(checklist.length) await sbPost('checklist_itens',checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem,atendimento_id:at.id}}));
-      for(var i=0;i<fotos.length;i++){var url=fotos[i].preview;try{var ext=fotos[i].file.name.split('.').pop();url=await sbUp(at.id+'/'+Date.now()+'.'+ext,fotos[i].file);}catch(e){}await sbPost('fotos',{atendimento_id:at.id,url:url,legenda:fotos[i].legenda,tipo:fotos[i].tipo,ordem:i});}
+      if(checklist.length) await sbPost('checklist_itens',checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem,atendimento_id:at.id};}));
+      for(var i=0;i<fotos.length;i++){
+        var url=fotos[i].preview;
+        try{var ext=(fotos[i].file&&fotos[i].file.name?fotos[i].file.name.split('.').pop():'jpg');url=await sbUp(at.id+'/'+Date.now()+'.'+ext,fotos[i].file);}catch(e){}
+        await sbPost('fotos',{atendimento_id:at.id,url:url,legenda:fotos[i].legenda,tipo:fotos[i].tipo,ordem:i});
+      }
+      if(rascLocalId&&String(rascLocalId).startsWith('RASC_')) await cacheDel('rascunho:'+rascLocalId);
       atObj=at;
     }
-    // Limpar rascunho local se existia
-    if(atObj.id) await cacheSet('rascunho:'+atObj.id,null);
-    if(currentOSId) await cacheSet('rascunho:'+currentOSId,null);
+    if(atObj.id) await cacheDel('rascunho:'+atObj.id);
     currentOS=atObj;showRelatorio(atObj);
-  }catch(e){dialogo('Erro ao salvar OS: '+e.message,'error');}
+  }catch(e){
+    var msg=String(e.message||e);
+    var isNet=msg.indexOf('Failed to fetch')!==-1||msg.indexOf('NetworkError')!==-1||msg.indexOf('timeout')!==-1||msg.indexOf('Load failed')!==-1;
+    if(isNet){
+      try{await salvarLocal();return;}catch(e2){}
+    }
+    dialogo('Erro ao salvar OS: '+msg,'error');
+  }
   finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Finalizar OS';}
 }
 
@@ -1163,92 +1296,9 @@ async function showRelatorio(os){
 // ════════════════════════════════════════════════════════════
 if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
-    try{
-      // SW inline via blob — não precisa de arquivo sw.js externo
-      var swCode=`// Service Worker — Excalibur Campo OS
-const CACHE = 'excalibur-os-v1';
-
-// Apenas arquivos LOCAIS no pre-cache (garantia de instalar sempre)
-// Assets CDN são cacheados lazily na primeira visita online
-const OWN = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png'];
-
-self.addEventListener('install', function(e) {
-  e.waitUntil(
-    caches.open(CACHE).then(function(cache) {
-      // Cada arquivo em separado — falha isolada não cancela os outros
-      return Promise.allSettled(
-        OWN.map(function(url) {
-          return cache.add(url).catch(function(err) {
-            console.warn('[SW] Falha ao cachear:', url, err.message);
-          });
-        })
-      );
-    }).then(function() { return self.skipWaiting(); })
-  );
-});
-
-self.addEventListener('activate', function(e) {
-  e.waitUntil(
-    caches.keys().then(function(keys) {
-      return Promise.all(
-        keys.filter(function(k) { return k !== CACHE; })
-            .map(function(k) { return caches.delete(k); })
-      );
-    }).then(function() { return self.clients.claim(); })
-  );
-});
-
-self.addEventListener('fetch', function(e) {
-  var url = e.request.url;
-
-  // Supabase: tenta rede — JS layer cuida do offline via IndexedDB
-  if (url.indexOf('supabase.co') !== -1) {
-    e.respondWith(
-      fetch(e.request).catch(function() {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      })
-    );
-    return;
-  }
-
-  // Tudo mais: cache-first + adiciona ao cache na primeira visita online
-  e.respondWith(
-    caches.match(e.request).then(function(cached) {
-      if (cached) return cached;
-
-      return fetch(e.request).then(function(response) {
-        // Cacheia respostas válidas (básicas = mesmo origin, cors = CDN com headers)
-        if (response && response.status === 200 &&
-            (response.type === 'basic' || response.type === 'cors')) {
-          var clone = response.clone();
-          caches.open(CACHE).then(function(c) { c.put(e.request, clone); }).catch(function(){});
-        }
-        return response;
-      }).catch(function() {
-        // Offline e não está em cache — fallback para o app shell
-        if (e.request.destination === 'document') {
-          return caches.match('./index.html');
-        }
-        return new Response('', { status: 503, statusText: 'Offline' });
-      });
-    })
-  );
-});
-`;
-      var blob=new Blob([swCode],{type:'application/javascript'});
-      var swUrl=URL.createObjectURL(blob);
-      navigator.serviceWorker.register(swUrl,{scope:'./'})
-        .then(function(r){console.log('[SW] Registrado:',r.scope);})
-        .catch(function(e){
-          // Fallback: tentar sw.js externo
-          navigator.serviceWorker.register('./sw.js')
-            .then(function(r){console.log('[SW] Externo:',r.scope);})
-            .catch(function(e2){console.warn('[SW] Sem suporte offline:',e2);});
-        });
-    }catch(e){console.warn('[SW] Erro:',e);}
+    navigator.serviceWorker.register('./sw.js',{scope:'./'})
+      .then(function(r){console.log('[SW] Registrado:',r.scope);})
+      .catch(function(e){console.warn('[SW] Falhou:',e.message);});
   });
 }
 window.addEventListener('online',  function(){atualizarStatusOffline();preCachearDados();});

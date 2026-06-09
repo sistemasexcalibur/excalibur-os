@@ -1,18 +1,14 @@
-// Service Worker — Excalibur Campo OS
-const CACHE = 'excalibur-os-v1';
-
-// Apenas arquivos LOCAIS no pre-cache (garantia de instalar sempre)
-// Assets CDN são cacheados lazily na primeira visita online
-const OWN = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+// Service Worker — Excalibur Campo OS v2
+const CACHE = 'excalibur-os-v2';
+const OWN = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function(e) {
   e.waitUntil(
     caches.open(CACHE).then(function(cache) {
-      // Cada arquivo em separado — falha isolada não cancela os outros
       return Promise.allSettled(
         OWN.map(function(url) {
           return cache.add(url).catch(function(err) {
-            console.warn('[SW] Falha ao cachear:', url, err.message);
+            console.warn('[SW] pre-cache falhou:', url);
           });
         })
       );
@@ -32,28 +28,40 @@ self.addEventListener('activate', function(e) {
 });
 
 self.addEventListener('fetch', function(e) {
+  if (e.request.method !== 'GET') return; // POST/PATCH/DELETE passam direto
+
   var url = e.request.url;
 
-  // Supabase: tenta rede — JS layer cuida do offline via IndexedDB
-  if (url.indexOf('supabase.co') !== -1) {
+  // Supabase: rede direta; camada JS cuida do offline via IndexedDB
+  if (url.indexOf('supabase.co') !== -1) return;
+
+  // Navegação (index.html): network-first com timeout, fallback cache
+  // → pega atualizações quando online, carrega instantâneo offline
+  if (e.request.mode === 'navigate' || e.request.destination === 'document') {
     e.respondWith(
-      fetch(e.request).catch(function() {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
+      Promise.race([
+        fetch(e.request).then(function(resp) {
+          if (resp && resp.status === 200) {
+            var clone = resp.clone();
+            caches.open(CACHE).then(function(c) { c.put('./index.html', clone); });
+          }
+          return resp;
+        }),
+        new Promise(function(_, reject) { setTimeout(reject, 4000, new Error('timeout')); })
+      ]).catch(function() {
+        return caches.match('./index.html').then(function(c) {
+          return c || caches.match('./');
         });
       })
     );
     return;
   }
 
-  // Tudo mais: cache-first + adiciona ao cache na primeira visita online
+  // Assets (CSS/fontes/imagens): cache-first, popula no primeiro acesso online
   e.respondWith(
     caches.match(e.request).then(function(cached) {
       if (cached) return cached;
-
       return fetch(e.request).then(function(response) {
-        // Cacheia respostas válidas (básicas = mesmo origin, cors = CDN com headers)
         if (response && response.status === 200 &&
             (response.type === 'basic' || response.type === 'cors')) {
           var clone = response.clone();
@@ -61,10 +69,6 @@ self.addEventListener('fetch', function(e) {
         }
         return response;
       }).catch(function() {
-        // Offline e não está em cache — fallback para o app shell
-        if (e.request.destination === 'document') {
-          return caches.match('./index.html');
-        }
         return new Response('', { status: 503, statusText: 'Offline' });
       });
     })
