@@ -95,6 +95,8 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
       <div class="stat-card"><div class="stat-num" id="sh" style="color:#E07015">0</div><div class="stat-lbl">Hoje</div></div>
       <div class="stat-card"><div class="stat-num" id="sp" style="color:#F59E0B">0</div><div class="stat-lbl">Pendentes</div></div>
     </div>
+    <!-- ALERTAS DE PREVENTIVA -->
+    <div id="alertas-preventiva" style="display:none;margin-bottom:16px"></div>
     <!-- BUSCA E FILTROS -->
     <div style="background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:14px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)">
       <div style="position:relative;margin-bottom:10px">
@@ -236,6 +238,10 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
       <div class="field"><label class="lbl">Ano</label><input class="inp" id="eq-ano" type="number" placeholder="2019"></div>
     </div>
     <div class="field"><label class="lbl">Placa (caminhões)</label><input class="inp" id="eq-placa" type="text" placeholder="ABC-1234"></div>
+    <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:12px;margin-top:4px">
+      <div style="font-size:11px;font-weight:700;color:#E07015;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px"><i class="ti ti-bell" style="margin-right:4px"></i>Alerta de Manutenção Preventiva</div>
+      <div class="field" style="margin-bottom:0"><label class="lbl">Horímetro da próxima preventiva (h)</label><input class="inp" id="eq-prev-horas" type="number" placeholder="Ex: 4750 — alerta quando OS registrar acima disso"></div>
+    </div>
   </div>
   <div style="position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #E5E7EB;padding:12px 16px;display:flex;gap:10px">
     <button class="btn btn-s" style="flex:1" onclick="showCadastros('equipamentos')">Cancelar</button>
@@ -254,6 +260,24 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   <div style="position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #E5E7EB;padding:12px 16px;display:flex;gap:10px">
     <button class="btn btn-s" style="flex:1" onclick="showCadastros('tecnicos')">Cancelar</button>
     <button class="btn btn-p" style="flex:2" id="bst" onclick="salvarTec()"><i class="ti ti-check"></i> Salvar Técnico</button>
+  </div>
+</div>
+
+<!-- HISTÓRICO DO EQUIPAMENTO -->
+<div id="scr-historico" class="screen" style="padding-top:60px">
+  <div class="hdr">
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="btn btn-g" onclick="showCadastros('equipamentos')" style="padding:6px;color:#fff"><i class="ti ti-arrow-left" style="font-size:20px"></i></button>
+      <div>
+        <div style="font-size:10px;color:#E07015;font-weight:600;text-transform:uppercase;letter-spacing:.1em" id="hist-subtitle">Histórico</div>
+        <div style="font-size:15px;font-weight:600;color:#fff" id="hist-title">Equipamento</div>
+      </div>
+    </div>
+  </div>
+  <div id="historico-list" style="padding:16px;padding-bottom:90px"></div>
+  <div class="bnav">
+    <button class="bnav-btn" onclick="showDash()"><i class="ti ti-clipboard-list"></i>Atendimentos</button>
+    <button class="bnav-btn active"><i class="ti ti-database"></i>Cadastros</button>
   </div>
 </div>
 
@@ -502,16 +526,13 @@ async function atualizarBadgePendentes(){
       var req=db2.transaction('cache','readonly').objectStore('cache').getAllKeys();
       req.onsuccess=function(e){r(e.target.result||[]);};req.onerror=function(){r([]);};
     });
-    nRasc=todas.filter(function(k){return String(k).startsWith('rascunho:RASC_');}).length;
+    nRasc=todas.filter(function(k){return String(k).startsWith('rascunho:');}).length;
   }catch(e){}
   var total=p.length+nRasc;
   var b=document.getElementById('badge-pendentes');
   if(!b)return;
-  if(total>0){
-    b.style.display='inline-block';
-    b.textContent=total+' pendente'+(total>1?'s':'')+' — sincronizar';
-    b.style.background='#7C3AED';
-  }else b.style.display='none';
+  if(total>0){b.style.display='inline-block';b.textContent=total+' pendente'+(total>1?'s':'')+' — sincronizar';b.style.background='#7C3AED';}
+  else b.style.display='none';
 }
 async function salvarOSOffline(sigTec,sigCli){
   var dados=Object.assign({},formData);
@@ -536,7 +557,6 @@ async function sincronizarFila(){
   if(!navigator.onLine){toast('Sem conexão com a internet','warning');return;}
 
   var p=await filaGetAll();
-  // Rascunhos locais (RASC_) também entram no sync
   var chavesRasc=[];
   try{
     var db2=await abrirDB();
@@ -544,7 +564,7 @@ async function sincronizarFila(){
       var req=db2.transaction('cache','readonly').objectStore('cache').getAllKeys();
       req.onsuccess=function(e){r(e.target.result||[]);};req.onerror=function(){r([]);};
     });
-    chavesRasc=todas.filter(function(k){return String(k).startsWith('rascunho:RASC_');});
+    chavesRasc=todas.filter(function(k){return String(k).startsWith('rascunho:');});
   }catch(e){}
 
   if(!p.length&&!chavesRasc.length){toast('Nenhuma OS pendente','info');return;}
@@ -553,7 +573,7 @@ async function sincronizarFila(){
   if(b){b.textContent='Sincronizando...';b.style.background='#E07015';}
   var ok=0,erros=0;
 
-  // 1. OS finalizadas offline (fila)
+  // 1. OS finalizadas offline (fila) → POST
   for(var i=0;i<p.length;i++){
     var pkg=p[i];
     try{
@@ -562,49 +582,45 @@ async function sincronizarFila(){
       delete de.id;delete de._pendente;
       ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!de[f])de[f]=null;});
       var at=(await sbPost('atendimentos',de))[0];
-      if(pkg.checklist&&pkg.checklist.length){
-        await sbPost('checklist_itens',pkg.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at.id});}));
-      }
-      if(pkg.fotos){
-        for(var j=0;j<pkg.fotos.length;j++){
-          var f=pkg.fotos[j];
-          if(!f.isExisting) await sbPost('fotos',{atendimento_id:at.id,url:f.preview,legenda:f.legenda,tipo:f.tipo,ordem:j});
-        }
-      }
+      if(pkg.checklist&&pkg.checklist.length) await sbPost('checklist_itens',pkg.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at.id});}));
+      if(pkg.fotos){for(var j=0;j<pkg.fotos.length;j++){var f=pkg.fotos[j];if(!f.isExisting) await sbPost('fotos',{atendimento_id:at.id,url:f.preview,legenda:f.legenda,tipo:f.tipo,ordem:j});}}
       await filaDelete(pkg.id);ok++;
     }catch(e){console.error('[sync fila]',e.message);erros++;}
   }
 
-  // 2. Rascunhos locais (RASC_) → Supabase com status rascunho
+  // 2. Rascunhos locais → POST (RASC_) ou PATCH (UUID existente)
   for(var k=0;k<chavesRasc.length;k++){
+    var chave=String(chavesRasc[k]);
     try{
-      var rp=await cacheGet(String(chavesRasc[k]));
-      if(!rp||!rp.atendimento)continue;
-      var no2=await sbRpc('gerar_numero_os');
-      var de2=Object.assign({},rp.atendimento,{numero_os:no2,status:'rascunho'});
+      var rp=await cacheGet(chave);
+      if(!rp||!rp.atendimento){await cacheDel(chave);continue;}
+      var idLocal=chave.replace('rascunho:','');
+      var de2=Object.assign({},rp.atendimento,{status:'rascunho'});
       delete de2.id;delete de2._pendente;
       ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!de2[f])de2[f]=null;});
-      var at2=(await sbPost('atendimentos',de2))[0];
-      if(rp.checklist&&rp.checklist.length){
-        await sbPost('checklist_itens',rp.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at2.id});}));
+
+      var alvoId;
+      if(idLocal.indexOf('RASC_')===0){
+        // Nunca foi ao servidor → CRIAR
+        var no2=await sbRpc('gerar_numero_os');de2.numero_os=no2;
+        var at2=(await sbPost('atendimentos',de2))[0];
+        alvoId=at2.id;
+      }else{
+        // Já existe no servidor → ATUALIZAR a mesma OS
+        delete de2.numero_os;
+        await sbPatch('atendimentos',idLocal,de2);
+        alvoId=idLocal;
       }
-      if(rp.fotos){
-        for(var j2=0;j2<rp.fotos.length;j2++){
-          var f2=rp.fotos[j2];
-          if(!f2.isExisting) await sbPost('fotos',{atendimento_id:at2.id,url:f2.preview,legenda:f2.legenda,tipo:f2.tipo,ordem:j2});
-        }
-      }
-      await cacheDel(String(chavesRasc[k]));ok++;
+      await sbDelete('checklist_itens','atendimento_id=eq.'+alvoId);
+      if(rp.checklist&&rp.checklist.length) await sbPost('checklist_itens',rp.checklist.map(function(c){return Object.assign({},c,{atendimento_id:alvoId});}));
+      if(rp.fotos){for(var j2=0;j2<rp.fotos.length;j2++){var f2=rp.fotos[j2];if(!f2.isExisting) await sbPost('fotos',{atendimento_id:alvoId,url:f2.preview,legenda:f2.legenda,tipo:f2.tipo,ordem:j2});}}
+      await cacheDel(chave);ok++;
     }catch(e){console.error('[sync rasc]',e.message);erros++;}
   }
 
   await atualizarBadgePendentes();
-  if(ok>0){
-    toast(ok+' registro'+(ok>1?'s':'')+' sincronizado'+(ok>1?'s':'')+'!'+(erros>0?' ('+erros+' com erro)':''),'success');
-    showDash();
-  }else if(erros>0){
-    toast('Erro ao sincronizar — tente novamente','error');
-  }
+  if(ok>0){toast(ok+' registro'+(ok>1?'s':'')+' sincronizado'+(ok>1?'s':'')+'!'+(erros>0?' ('+erros+' com erro)':''),'success');showDash();}
+  else if(erros>0){toast('Erro ao sincronizar — tente novamente','error');}
 }
 function atualizarStatusOffline(){
   var b=document.getElementById('offline-banner');
@@ -661,6 +677,147 @@ function badge(s){
 // ════════════════════════════════════════════════════════════
 // DASHBOARD
 // ════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════
+// FEATURE 1: HISTÓRICO DO EQUIPAMENTO
+// ════════════════════════════════════════════════════════════
+async function showHistorico(equipId, nome, cliente){
+  document.getElementById('hist-title').textContent = nome||'Equipamento';
+  document.getElementById('hist-subtitle').textContent = cliente?'Histórico — '+cliente:'Histórico';
+  showScreen('scr-historico');
+  var list = document.getElementById('historico-list');
+  list.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:28px;display:block;margin-bottom:8px"></i>Carregando histórico...</div>';
+  try{
+    var d = await sbGet('atendimentos','?select=*,tecnicos(nome)&equipamento_id=eq.'+equipId+'&order=data_atendimento.desc');
+    if(!d.length){
+      list.innerHTML = '<div style="text-align:center;padding:50px 20px;color:#9CA3AF"><i class="ti ti-clipboard-list" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i><div style="font-weight:600;color:#374151">Nenhum atendimento registrado</div><div style="font-size:13px;margin-top:6px">OS futuras para este equipamento aparecerão aqui</div></div>';
+      return;
+    }
+    var tE={corretiva:'🔧',preventiva:'🔍',emergencial:'🚨',inspecao:'📋'};
+    // Estatísticas rápidas
+    var total=d.length;
+    var ultima=d[0];
+    var intervMedio=0;
+    if(d.length>1){
+      var datas=d.map(function(a){return new Date(a.data_atendimento+'T00:00:00');}).sort(function(a,b){return a-b;});
+      var dias=0;
+      for(var i=1;i<datas.length;i++) dias+=(datas[i]-datas[i-1])/(1000*60*60*24);
+      intervMedio=Math.round(dias/(datas.length-1));
+    }
+    var stats = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">'
+      +'<div class="card" style="text-align:center"><div style="font-size:22px;font-weight:700;color:#111827">'+total+'</div><div style="font-size:10px;color:#9CA3AF;text-transform:uppercase;letter-spacing:.06em;margin-top:3px">Atendimentos</div></div>'
+      +'<div class="card" style="text-align:center"><div style="font-size:22px;font-weight:700;color:#E07015">'+d.filter(function(a){return a.tipo_manutencao==='preventiva';}).length+'</div><div style="font-size:10px;color:#9CA3AF;text-transform:uppercase;letter-spacing:.06em;margin-top:3px">Preventivas</div></div>'
+      +'<div class="card" style="text-align:center"><div style="font-size:22px;font-weight:700;color:#059669">'+(intervMedio>0?intervMedio+'d':'—')+'</div><div style="font-size:10px;color:#9CA3AF;text-transform:uppercase;letter-spacing:.06em;margin-top:3px">Intervalo</div></div>'
+      +'</div>';
+    list.innerHTML = stats + d.map(function(a){
+      return       +'<div class="card" style="margin-bottom:10px;cursor:pointer" data-os="'+encodeURIComponent(JSON.stringify(a))+'" onclick="openOS(decodeURIComponent(this.dataset.os))" onmouseover="this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.1)\'" onmouseout="this.style.boxShadow=\'0 1px 3px rgba(0,0,0,.06)\'">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
+        +'<div><div style="font-size:12px;font-weight:700;color:#E07015;margin-bottom:2px">'+a.numero_os+'</div>'
+        +'<div style="font-size:14px;font-weight:600;color:#111827">'+(tE[a.tipo_manutencao]||'📋')+' '+a.data_atendimento+'</div></div>'
+        +badge(a.status)+'</div>'
+        +'<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:#6B7280">'
+        +(a.tecnicos?'<span><i class="ti ti-user" style="margin-right:3px"></i>'+a.tecnicos.nome+'</span>':'')
+        +(a.horimetro_hodometro?'<span><i class="ti ti-gauge" style="margin-right:3px"></i>'+a.horimetro_hodometro+'</span>':'')
+        +(a.problema_relatado?'<div style="width:100%;margin-top:6px;padding-top:8px;border-top:1px solid #F3F4F6;font-size:12px;color:#6B7280;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+a.problema_relatado+'</div>':'')
+        +'</div></div>';
+    }).join('');
+  }catch(e){
+    list.innerHTML='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px;color:#DC2626;font-size:13px">Erro: '+e.message+'</div>';
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// FEATURE 2: ALERTAS DE MANUTENÇÃO PREVENTIVA
+// ════════════════════════════════════════════════════════════
+function parseHorimetro(s){
+  if(!s&&s!==0) return null;
+  var str=String(s).trim().replace(/\s/g,'');
+  // Extrair só dígitos, pontos e vírgulas para analisar
+  var num=str.replace(/[^\d.,]/g,'');
+  if(!num) return null;
+  // Se tem vírgula
+  if(num.indexOf(',')!==-1){
+    var apVirgula=num.split(',')[1]||'';
+    if(apVirgula.length===3){
+      // Vírgula como milhar (4,520 = 4520): remover vírgula
+      num=num.replace(/,/g,'').replace(/\./g,'');
+    }else{
+      // Vírgula como decimal (4,5 = 4.5): remover pontos de milhar, trocar vírgula
+      num=num.replace(/\./g,'').replace(',','.');
+    }
+  }else if(num.indexOf('.')!==-1){
+    var apPonto=num.split('.')[1]||'';
+    if(apPonto.length===3){
+      // Ponto como milhar (4.520 = 4520)
+      num=num.replace(/\./g,'');
+    }
+    // senão ponto como decimal (4.5) — manter como está
+  }
+  var n=parseFloat(num);
+  return isNaN(n)?null:n;
+}
+
+async function verificarPreventivas(){
+  var secao=document.getElementById('alertas-preventiva');
+  if(!secao)return;
+  try{
+    var eqs=await sbGet('equipamentos','?select=id,tipo,marca,modelo,preventiva_proxima_horas,clientes(nome)&preventiva_proxima_horas=not.is.null&order=tipo');
+    if(!eqs.length){secao.style.display='none';return;}
+    var alertas=[];
+    for(var i=0;i<eqs.length;i++){
+      var eq=eqs[i];
+      var limiar=parseInt(eq.preventiva_proxima_horas);
+      if(!limiar)continue;
+      var oss=await sbGet('atendimentos','?select=horimetro_hodometro&equipamento_id=eq.'+eq.id+'&horimetro_hodometro=not.is.null&order=data_atendimento.desc&limit=1');
+      if(!oss.length)continue;
+      var hAtual=parseHorimetro(oss[0].horimetro_hodometro);
+      if(hAtual===null)continue;
+      var diff=limiar-hAtual;
+      var nivel=diff<=0?'vencida':diff<=50?'urgente':diff<=150?'atencao':null;
+      if(nivel) alertas.push({eq:eq,hAtual:hAtual,limiar:limiar,diff:diff,nivel:nivel});
+    }
+    if(!alertas.length){secao.style.display='none';return;}
+    var cmap={
+      vencida:{bg:'#FEF2F2',borda:'#FECACA',txt:'#DC2626',ic:'ti-alert-circle',la:'Vencida'},
+      urgente:{bg:'#FFF7ED',borda:'#FED7AA',txt:'#E07015',ic:'ti-alert-triangle',la:'Urgente'},
+      atencao:{bg:'#FFFBEB',borda:'#FDE68A',txt:'#B45309',ic:'ti-clock',la:'Atenção'}
+    };
+    window._alertas=alertas;
+    var html='<div style="font-size:11px;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">'
+      +'<i class="ti ti-bell" style="margin-right:4px;color:#E07015"></i>Alertas de Preventiva ('+alertas.length+')</div>';
+    alertas.forEach(function(a,i){
+      var c=cmap[a.nivel];
+      var nome=a.eq.tipo+' '+a.eq.marca+' '+a.eq.modelo;
+      var cli=a.eq.clientes?a.eq.clientes.nome:'';
+      var diffTxt=a.diff<=0?(Math.abs(Math.round(a.diff))+'h vencida'):(Math.round(a.diff)+'h restantes');
+      html+='<div class="card alerta-item" data-idx="'+i+'" style="margin-bottom:8px;cursor:pointer;'
+        +'background:'+c.bg+';border:1px solid '+c.borda+'">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center">'
+        +'<div style="display:flex;align-items:center;gap:8px">'
+        +'<i class="ti '+c.ic+'" style="font-size:20px;color:'+c.txt+'"></i>'
+        +'<div><div style="font-size:12px;font-weight:700;color:'+c.txt+'">Preventiva '+c.la+'</div>'
+        +'<div style="font-size:14px;font-weight:600;color:#111827">'+nome+'</div>'
+        +(cli?'<div style="font-size:12px;color:#6B7280">'+cli+'</div>':'')
+        +'</div></div>'
+        +'<div style="text-align:right">'
+        +'<div style="font-size:13px;font-weight:700;color:'+c.txt+'">'+diffTxt+'</div>'
+        +'<div style="font-size:11px;color:#9CA3AF">'+a.hAtual+'h / '+a.limiar+'h</div>'
+        +'</div></div></div>';
+    });
+    secao.innerHTML=html;
+    secao.style.display='block';
+    // addEventListener sem inline onclick (resolve conflito de aspas)
+    secao.querySelectorAll('.alerta-item').forEach(function(el){
+      el.addEventListener('click',function(){
+        var a=window._alertas[+this.dataset.idx];
+        if(a) showHistorico(a.eq.id,a.eq.tipo+' '+a.eq.marca+' '+a.eq.modelo,(a.eq.clientes?a.eq.clientes.nome:''));
+      });
+    });
+  }catch(e){
+    console.warn('[preventivas]',e.message);
+    secao.style.display='none';
+  }
+}
 async function showDash(){
   showScreen('scr-dash');
   filtros={busca:'',status:'todos',tipo:'todos',periodo:'todos'};
@@ -704,6 +861,7 @@ async function showDash(){
     todosAtendimentos=somenteLocais.concat(listaFinal);
     renderAtendimentos(todosAtendimentos);
     var _now=Date.now();if(!window._lastPre||_now-window._lastPre>300000){window._lastPre=_now;preCachearDados();}
+    verificarPreventivas();
   }catch(e){
     document.getElementById('dash-list').innerHTML='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px;color:#DC2626;font-size:13px"><i class="ti ti-alert-circle" style="margin-right:6px"></i>Erro: '+e.message+'</div>';
   }
@@ -795,9 +953,29 @@ async function loadCadastros(){
     }
     if(cadTab==='equipamentos'){
       var d=await sbGet('equipamentos','?select=*,clientes(nome)&order=tipo');
-      list.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div style="font-size:13px;color:#6B7280">'+d.length+' equipamento'+(d.length!==1?'s':'')+'</div><button class="btn btn-p" style="padding:8px 14px;font-size:13px" onclick="showFormEq()"><i class="ti ti-plus"></i> Novo</button></div>'
-        +(d.length?d.map(function(e){return'<div class="card" style="margin-bottom:10px"><div style="display:flex;align-items:flex-start;gap:12px"><div style="width:40px;height:40px;border-radius:10px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;border:1px solid #FED7AA">🚧</div><div><div style="font-size:15px;font-weight:600;color:#111827">'+e.tipo+' '+e.marca+' — '+e.modelo+'</div>'+(e.clientes?'<div style="font-size:13px;color:#6B7280;margin-top:2px"><i class="ti ti-building" style="margin-right:3px"></i>'+e.clientes.nome+'</div>':'')+'<div style="font-size:13px;color:#9CA3AF;margin-top:2px">'+([e.numero_serie?'Série: '+e.numero_serie:'',e.ano_fabricacao?'Ano: '+e.ano_fabricacao:'',e.placa?'Placa: '+e.placa:''].filter(Boolean).join(' · '))+'</div></div></div></div>';}).join('')
+      list.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div style="font-size:13px;color:#6B7280;font-weight:500">'+d.length+' equipamento'+(d.length!==1?'s':'')+'</div><button class="btn btn-p" style="padding:8px 14px;font-size:13px" onclick="showFormEq()"><i class="ti ti-plus"></i> Novo</button></div>'
+        +(d.length?d.map(function(e){
+          var nome=e.tipo+' '+e.marca+' — '+e.modelo;
+          var cli=e.clientes?e.clientes.nome:'';
+          var prevBadge=e.preventiva_proxima_horas?'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:#FFF7ED;color:#E07015;border:1px solid #FED7AA;margin-left:6px"><i class="ti ti-bell"></i> '+e.preventiva_proxima_horas+'h</span>':'';
+          return '<div class="card" style="margin-bottom:10px">'
+            +'<div style="display:flex;align-items:flex-start;gap:12px">'
+            +'<div style="width:40px;height:40px;border-radius:10px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;border:1px solid #FED7AA">🚧</div>'
+            +'<div style="flex:1">'
+            +'<div style="font-size:15px;font-weight:600;color:#111827">'+nome+prevBadge+'</div>'
+            +(cli?'<div style="font-size:13px;color:#6B7280;margin-top:2px"><i class="ti ti-building" style="margin-right:3px"></i>'+cli+'</div>':'')
+            +'<div style="font-size:13px;color:#9CA3AF;margin-top:2px">'+([e.numero_serie?'Série: '+e.numero_serie:'',e.ano_fabricacao?'Ano: '+e.ano_fabricacao:'',e.placa?'Placa: '+e.placa:''].filter(Boolean).join(' · '))+'</div>'
+            +'<button class="btn btn-s hist-btn" style="margin-top:8px;padding:6px 12px;font-size:12px" data-eid="'+e.id+'" data-enome="'+nome+'" data-ecli="'+cli+'">'
+            +'<i class="ti ti-history" style="margin-right:4px"></i>Ver Histórico</button>'
+            +'</div></div></div>';
+        }).join('')
         :'<div style="text-align:center;padding:50px 20px;color:#9CA3AF"><i class="ti ti-tractor" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i><div style="font-weight:600;color:#374151">Nenhum equipamento cadastrado</div></div>');
+      list.querySelectorAll('.hist-btn').forEach(function(btn){
+        btn.addEventListener('click',function(ev){
+          ev.stopPropagation();
+          showHistorico(this.dataset.eid, this.dataset.enome, this.dataset.ecli);
+        });
+      });
     }
     if(cadTab==='tecnicos'){
       var d=await sbGet('tecnicos','?select=*&order=nome');
@@ -818,18 +996,37 @@ async function salvarCliente(){
   }catch(e){dialogo('Erro ao salvar: '+e.message,'error');}
   finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar Cliente';}
 }
-async function showFormEq(){
+async function showFormEq(eq){
   showScreen('scr-form-eq');
-  ['tipo','marca','modelo','serie','ano','placa'].forEach(function(f){document.getElementById('eq-'+f).value='';});
+  // eq = objeto para editar, ou undefined para novo
+  window._editandoEq=eq||null;
+  ['tipo','marca','modelo','serie','ano','placa'].forEach(function(f){
+    var el=document.getElementById('eq-'+f);
+    if(el) el.value=(eq&&eq[f])||'';
+  });
+  var prevEl=document.getElementById('eq-prev-horas');
+  if(prevEl) prevEl.value=(eq&&eq.preventiva_proxima_horas)||'';
   var sel=document.getElementById('eq-cli');sel.innerHTML='<option value="">Selecione o cliente...</option>';
-  try{var d=await sbGet('clientes','?select=id,nome&order=nome');d.forEach(function(c){var o=document.createElement('option');o.value=c.id;o.textContent=c.nome;sel.appendChild(o);});}catch(e){}
+  try{
+    var d=await sbGet('clientes','?select=id,nome&order=nome');
+    d.forEach(function(c){var o=document.createElement('option');o.value=c.id;o.textContent=c.nome;sel.appendChild(o);});
+    if(eq&&eq.cliente_id) sel.value=eq.cliente_id;
+  }catch(e){}
 }
 async function salvarEq(){
   var t=document.getElementById('eq-tipo').value.trim(),m=document.getElementById('eq-marca').value.trim(),mo=document.getElementById('eq-modelo').value.trim();
   if(!t||!m||!mo){toast('Tipo, marca e modelo são obrigatórios','error');return;}
   var btn=document.getElementById('bse');btn.disabled=true;btn.innerHTML='Salvando...';
   try{
-    await sbPost('equipamentos',{tipo:t,marca:m,modelo:mo,cliente_id:document.getElementById('eq-cli').value||null,numero_serie:document.getElementById('eq-serie').value||null,ano_fabricacao:document.getElementById('eq-ano').value?parseInt(document.getElementById('eq-ano').value):null,placa:document.getElementById('eq-placa').value||null});
+    var prevVal=document.getElementById('eq-prev-horas').value;
+    var dados={tipo:t,marca:m,modelo:mo,
+      cliente_id:document.getElementById('eq-cli').value||null,
+      numero_serie:document.getElementById('eq-serie').value||null,
+      ano_fabricacao:document.getElementById('eq-ano').value?parseInt(document.getElementById('eq-ano').value):null,
+      placa:document.getElementById('eq-placa').value||null,
+      preventiva_proxima_horas:prevVal?parseInt(prevVal):null
+    };
+    await sbPost('equipamentos',dados);
     toast('Equipamento salvo!','success');showCadastros('equipamentos');
   }catch(e){dialogo('Erro ao salvar: '+e.message,'error');}
   finally{btn.disabled=false;btn.innerHTML='<i class="ti ti-check"></i> Salvar Equipamento';}
@@ -1133,28 +1330,24 @@ function getSignature(id){
 }
 async function salvarRascunho(){
   var btn=document.getElementById('btn-rascunho');btn.disabled=true;btn.innerHTML='Salvando...';
-
-  function btnOk(){
-    btn.innerHTML='<i class="ti ti-check" style="margin-right:4px"></i>Rascunho salvo!';
-    setTimeout(function(){btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';},2500);
-  }
-  function btnReset(){
-    btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';
-  }
+  function btnOk(){btn.innerHTML='<i class="ti ti-check" style="margin-right:4px"></i>Rascunho salvo!';setTimeout(function(){btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';},2500);}
+  function btnReset(){btn.disabled=false;btn.innerHTML='<i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho';}
 
   var dados=Object.assign({},formData);
   ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!dados[f])dados[f]=null;});
   dados.status='rascunho';
 
+  // REGRA DE IDENTIDADE: a OS mantém SEMPRE o mesmo id.
+  // Sem id ainda → gera RASC_ local. Com id (RASC_ ou UUID) → reusa.
   async function salvarLocalRascunho(){
-    var tmpId=(currentOSId&&String(currentOSId).startsWith('RASC_'))?currentOSId:('RASC_'+Date.now());
-    var pkg={tmpId:tmpId,isRascunho:true,criadoEm:new Date().toISOString(),
-      atendimento:Object.assign({},dados,{id:tmpId,numero_os:'RASCUNHO',_pendente:true}),
+    var id=currentOSId||('RASC_'+Date.now());
+    var pkg={tmpId:id,isRascunho:true,criadoEm:new Date().toISOString(),
+      atendimento:Object.assign({},dados,{id:id,numero_os:(String(id).startsWith('RASC_')?'RASCUNHO':dados.numero_os||'RASCUNHO'),_pendente:true}),
       checklist:checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem};}),
       fotos:fotos.map(function(f){return{preview:f.preview,legenda:f.legenda,tipo:f.tipo,isExisting:f.isExisting||false};})
     };
-    await cacheSet('rascunho:'+tmpId,pkg);
-    currentOSId=tmpId;
+    await cacheSet('rascunho:'+id,pkg);
+    currentOSId=id;
     toast('Rascunho salvo no dispositivo','success');
     await atualizarBadgePendentes();
     btnOk();
@@ -1163,30 +1356,31 @@ async function salvarRascunho(){
   try{
     if(!navigator.onLine){await salvarLocalRascunho();return;}
 
-    // ONLINE: salvar no Supabase
-    var rascLocalAntigo=(currentOSId&&String(currentOSId).startsWith('RASC_'))?currentOSId:null;
     var atId;
     if(currentOSId&&!String(currentOSId).startsWith('RASC_')){
+      // OS já existe no Supabase → SEMPRE atualizar a mesma
       await sbPatch('atendimentos',currentOSId,dados);
       atId=currentOSId;
     }else{
+      // Primeira ida ao servidor (era RASC_ local ou OS totalmente nova)
+      var rascAntigo=currentOSId; // pode ser RASC_xxx ou null
       var no=await sbRpc('gerar_numero_os');dados.numero_os=no;
       var at=(await sbPost('atendimentos',dados))[0];
       atId=at.id;
+      if(rascAntigo) await cacheDel('rascunho:'+rascAntigo);
     }
     await sbDelete('checklist_itens','atendimento_id=eq.'+atId);
     if(checklist.length) await sbPost('checklist_itens',checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem,atendimento_id:atId};}));
-    // Limpar rascunho local ANTES de sobrescrever currentOSId (bug fix)
-    if(rascLocalAntigo) await cacheDel('rascunho:'+rascLocalAntigo);
+    // Limpar qualquer versão local pendente desta OS
+    await cacheDel('rascunho:'+atId);
     currentOSId=atId;
     toast('Rascunho salvo!','success');
+    await atualizarBadgePendentes();
     btnOk();
   }catch(e){
     var msg=String(e.message||e);
     var isNet=msg.indexOf('Failed to fetch')!==-1||msg.indexOf('NetworkError')!==-1||msg.indexOf('Load failed')!==-1;
-    if(isNet){
-      try{await salvarLocalRascunho();return;}catch(e2){}
-    }
+    if(isNet){try{await salvarLocalRascunho();return;}catch(e2){}}
     dialogo('Erro ao salvar rascunho: '+msg,'error');
     btnReset();
   }
