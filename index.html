@@ -160,7 +160,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   <div id="step-bars-wrap" style="background:#fff;padding:12px 16px 6px;border-bottom:1px solid #E5E7EB;position:fixed;top:60px;left:0;right:0;z-index:150">
     <div style="display:flex;gap:6px" id="step-bars"></div>
   </div>
-  <div id="wizard-content" style="padding:16px;padding-top:104px;padding-bottom:120px"></div>
+  <div id="wizard-content" style="padding:16px;padding-top:130px;padding-bottom:120px"></div>
   <div class="no-print" style="position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #E5E7EB;padding:8px 16px 12px;box-shadow:0 -2px 8px rgba(0,0,0,.06)">
     <div style="text-align:center;margin-bottom:6px">
       <button id="btn-rascunho" onclick="salvarRascunho()" style="background:none;border:none;color:#7C3AED;font-size:13px;cursor:pointer;font-weight:500"><i class="ti ti-device-floppy" style="margin-right:4px"></i>Salvar como rascunho</button>
@@ -181,7 +181,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
       <button class="btn btn-p" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir / PDF</button>
     </div>
   </div>
-  <div id="relatorio-body" style="padding:16px;padding-top:76px;padding-bottom:40px"></div>
+  <div id="relatorio-body" style="padding:16px;padding-top:80px;padding-bottom:40px"></div>
 </div>
 
 <!-- CADASTROS -->
@@ -633,9 +633,9 @@ function atualizarStatusOffline(){
     if(el) el.style.paddingTop=(60+extra)+'px';
   });
   var wiz=document.getElementById('wizard-content');
-  if(wiz) wiz.style.paddingTop=(76+extra)+'px';
+  if(wiz) wiz.style.paddingTop=(130+extra)+'px';
   var rel=document.getElementById('relatorio-body');
-  if(rel) rel.style.paddingTop=(76+extra)+'px';
+  if(rel) rel.style.paddingTop=(80+extra)+'px';
   atualizarBadgePendentes();
 }
 
@@ -1053,7 +1053,7 @@ async function showNova(){
   try{[tecnicos,clientes]=await Promise.all([sbGet('tecnicos','?select=id,nome&order=nome'),sbGet('clientes','?select=id,nome&order=nome')]);}catch(e){}
   equipamentos=[];
   if(!navigator.onLine&&(!tecnicos.length||!clientes.length)){toast('Sem dados cacheados. Abra o app online ao menos uma vez para usar offline.','warning',7000);}
-  showScreen('scr-nova');renderStep();
+  showScreen('scr-nova');window.scrollTo(0,0);renderStep();
 }
 async function editarOS(os){
   step=0;fotos=[];currentOSId=os.id;
@@ -1087,7 +1087,7 @@ async function editarOS(os){
   }catch(e){
     checklist=CK.map(function(c,i){return Object.assign({},c,{resultado:'ok',observacao:'',ordem:i});});
   }
-  showScreen('scr-nova');renderStep();
+  showScreen('scr-nova');window.scrollTo(0,0);renderStep();
 }
 
 
@@ -1495,7 +1495,25 @@ if('serviceWorker' in navigator){
       .catch(function(e){console.warn('[SW] Falhou:',e.message);});
   });
 }
-window.addEventListener('online',  function(){atualizarStatusOffline();preCachearDados();});
+window.addEventListener('online', function(){
+  atualizarStatusOffline();
+  preCachearDados();
+  setTimeout(async function(){
+    try{
+      var fila=await filaGetAll();
+      var db2=await abrirDB();
+      var chaves=await new Promise(function(r){
+        var req=db2.transaction('cache','readonly').objectStore('cache').getAllKeys();
+        req.onsuccess=function(e){r(e.target.result||[]);};req.onerror=function(){r([]);};
+      });
+      var rascs=chaves.filter(function(k){return String(k).startsWith('rascunho:');});
+      if(fila.length+rascs.length>0){
+        console.log('[auto-sync]',fila.length+rascs.length,'item(s) pendente(s)');
+        await sincronizarFila();
+      }
+    }catch(e){console.warn('[auto-sync]',e.message);}
+  },2000);
+});
 window.addEventListener('offline', function(){atualizarStatusOffline();});
 window.addEventListener('load', function(){
   atualizarStatusOffline();
