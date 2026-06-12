@@ -332,6 +332,11 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 
 
 <script>
+    // Admin: busca no cache por id
+    function _cliById(id){ return (window._cliData||[]).find(function(x){return x.id==id;})||{}; }
+    function _tecById(id){ return (window._tecData||[]).find(function(x){return x.id==id;})||{}; }
+    function _eqById(id){  return (window._eqData||[]).find(function(x){return x.id==id;})||{}; }
+
 
 
 
@@ -1099,7 +1104,7 @@ async function alterarPin(){
 
 // EDITAR/EXCLUIR — Clientes
 // ════════════════════════════════════════════════════════════
-async function editarCliente(cli){
+async function editarCliente(cliOrId){ var cli=typeof cliOrId==='object'?cliOrId:_cliById(cliOrId);
   showScreen('scr-form-cli');
   window._editandoCli = cli;
   var titulo=document.querySelector('#scr-form-cli .hdr div:last-child div:last-child');
@@ -1115,7 +1120,7 @@ async function editarCliente(cli){
   document.getElementById('cli-uf').value    = cli.estado      || '';
 }
 
-async function excluirCliente(id, nome){
+async function excluirCliente(id, elOrNome){ var nome=typeof elOrNome==='string'?elOrNome:(_cliById(id).nome||'este cliente');
   var ok1=await confirmar('Excluir o cliente "'+nome+'"?\nOS relacionadas perderão o vínculo.','🗑');
   if(!ok1)return;
   var ok2=await confirmar('ATENÇÃO: Ação irreversível.\nConfirmar exclusão definitiva de "'+nome+'"?','⛔');
@@ -1127,7 +1132,7 @@ async function excluirCliente(id, nome){
 // ════════════════════════════════════════════════════════════
 // EDITAR/EXCLUIR — Equipamentos
 // ════════════════════════════════════════════════════════════
-async function excluirEquipamento(id, nome){
+async function excluirEquipamento(id, elOrNome){ var eq=_eqById(id); var nome=typeof elOrNome==='string'?elOrNome:(eq.tipo+' '+eq.marca+' — '+eq.modelo);
   var ok1=await confirmar('Excluir o equipamento "'+nome+'"?\nOS relacionadas perderão o vínculo.','🗑');
   if(!ok1)return;
   var ok2=await confirmar('ATENÇÃO: Ação irreversível.\nConfirmar exclusão definitiva de "'+nome+'"?','⛔');
@@ -1139,7 +1144,7 @@ async function excluirEquipamento(id, nome){
 // ════════════════════════════════════════════════════════════
 // EDITAR/EXCLUIR — Técnicos
 // ════════════════════════════════════════════════════════════
-async function editarTecnico(tec){
+async function editarTecnico(tecOrId){ var tec=typeof tecOrId==='object'?tecOrId:_tecById(tecOrId);
   showScreen('scr-form-tec');
   window._editandoTec = tec;
   var titulo=document.querySelector('#scr-form-tec .hdr div:last-child div:last-child');
@@ -1151,7 +1156,7 @@ async function editarTecnico(tec){
   document.getElementById('tec-email').value = tec.email    || '';
 }
 
-async function excluirTecnico(id, nome){
+async function excluirTecnico(id, elOrNome){ var nome=typeof elOrNome==='string'?elOrNome:(_tecById(id).nome||'este técnico');
   var ok1=await confirmar('Excluir o técnico "'+nome+'"?\nOS relacionadas perderão o vínculo.','🗑');
   if(!ok1)return;
   var ok2=await confirmar('ATENÇÃO: Ação irreversível.\nConfirmar exclusão definitiva de "'+nome+'"?','⛔');
@@ -1284,24 +1289,75 @@ function showCadastros(tab){
   loadCadastros();
 }
 function switchTab(tab){cadTab=tab;showCadastros(tab);}
-async function loadCadastros(){
+
+    // Cache helpers
+    function _cliById(id){ return (window._cliData||[]).find(function(x){return x.id==id;})||null; }
+    function _eqById(id){  return (window._eqData||[]).find(function(x){return x.id==id;})||null; }
+    function _tecById(id){ return (window._tecData||[]).find(function(x){return x.id==id;})||null; }
+
+    function addAdminBtns(list){
+      if(!isAdmin()) return;
+      var mkBtns=function(editFn,delFn){
+        var wrap=document.createElement('div');
+        wrap.style.cssText='display:flex;gap:6px;margin-top:8px';
+        if(editFn){
+          var e=document.createElement('button');
+          e.className='btn btn-s'; e.style.cssText='font-size:12px;padding:5px 10px';
+          e.innerHTML='✏ Editar'; e.onclick=editFn; wrap.appendChild(e);
+        }
+        var d2=document.createElement('button');
+        d2.className='btn'; d2.style.cssText='font-size:12px;padding:5px 10px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA';
+        d2.innerHTML='🗑 Excluir'; d2.onclick=delFn; wrap.appendChild(d2);
+        return wrap;
+      };
+      list.querySelectorAll('[data-cid]').forEach(function(card){
+        var id=card.getAttribute('data-cid');
+        var item=_cliById(id); if(!item) return;
+        var inner=card.querySelector('div:last-child')||card;
+        inner.appendChild(mkBtns(
+          function(){ editarCliente(item); },
+          function(){ excluirCliente(item.id, item.nome); }
+        ));
+      });
+      list.querySelectorAll('[data-eid]').forEach(function(card){
+        var id=card.getAttribute('data-eid');
+        var item=_eqById(id); if(!item) return;
+        var label=(item.tipo||'')+' '+(item.marca||'')+' — '+(item.modelo||'');
+        var inner=card.querySelector('div:last-child')||card;
+        inner.appendChild(mkBtns(
+          null,
+          function(){ excluirEquipamento(item.id, label); }
+        ));
+      });
+      list.querySelectorAll('[data-tid]').forEach(function(card){
+        var id=card.getAttribute('data-tid');
+        var item=_tecById(id); if(!item) return;
+        var inner=card.querySelector('div:last-child')||card;
+        inner.appendChild(mkBtns(
+          function(){ editarTecnico(item); },
+          function(){ excluirTecnico(item.id, item.nome); }
+        ));
+      });
+    }
+
+    async function loadCadastros(){
   var list=document.getElementById('cad-list');
   list.innerHTML='<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:24px;display:block;margin-bottom:8px"></i>Carregando...</div>';
   try{
     if(cadTab==='clientes'){
-      var d=await sbGet('clientes','?select=*&order=nome');
+      var d=await sbGet('clientes','?select=*&order=nome'); window._cliData=d; var adm=isAdmin();
       list.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div style="font-size:13px;color:#6B7280">'+d.length+' cliente'+(d.length!==1?'s':'')+' cadastrado'+(d.length!==1?'s':'')+'</div><button class="btn btn-p" style="padding:8px 14px;font-size:13px" onclick="showFormCli()"><i class="ti ti-plus"></i> Novo</button></div>'
-        +(d.length?d.map(function(c){return'<div class="card" style="margin-bottom:10px"><div style="display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;border-radius:10px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#E07015;flex-shrink:0;border:1px solid #FED7AA">'+c.nome.charAt(0).toUpperCase()+'</div><div style="flex:1"><div style="font-size:15px;font-weight:600;color:#111827">'+c.nome+'</div><div style="font-size:13px;color:#6B7280;margin-top:2px">'+([c.cnpj_cpf,c.cidade&&c.estado?c.cidade+' — '+c.estado:''].filter(Boolean).join(' · ')||'Sem dados adicionais')+'</div>'+(c.telefone?'<div style="font-size:13px;color:#6B7280;margin-top:2px"><i class="ti ti-phone" style="margin-right:3px"></i>'+c.telefone+'</div>':'')+'</div></div></div>';}).join('')
+        +(d.length?d.map(function(c){return'<div class="card" data-cid="'+c.id+'" style="margin-bottom:10px"><div style="display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;border-radius:10px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#E07015;flex-shrink:0;border:1px solid #FED7AA">'+c.nome.charAt(0).toUpperCase()+'</div><div style="flex:1"><div style="font-size:15px;font-weight:600;color:#111827">'+c.nome+'</div><div style="font-size:13px;color:#6B7280;margin-top:2px">'+([c.cnpj_cpf,c.cidade&&c.estado?c.cidade+' — '+c.estado:''].filter(Boolean).join(' · ')||'Sem dados adicionais')+'</div>'+(c.telefone?'<div style="font-size:13px;color:#6B7280;margin-top:2px"><i class="ti ti-phone" style="margin-right:3px"></i>'+c.telefone+'</div>':'')+'</div></div></div>';}).join('')
         :'<div style="text-align:center;padding:50px 20px;color:#9CA3AF"><i class="ti ti-building" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i><div style="font-weight:600;color:#374151">Nenhum cliente cadastrado</div></div>');
     }
     if(cadTab==='equipamentos'){
-      var d=await sbGet('equipamentos','?select=*,clientes(nome)&order=tipo');
+      var d=await sbGet('equipamentos','?select=*,clientes(nome)&order=tipo'); window._eqData=d;
       list.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div style="font-size:13px;color:#6B7280;font-weight:500">'+d.length+' equipamento'+(d.length!==1?'s':'')+'</div><button class="btn btn-p" style="padding:8px 14px;font-size:13px" onclick="showFormEq()"><i class="ti ti-plus"></i> Novo</button></div>'
         +(d.length?d.map(function(e){
           var nome=e.tipo+' '+e.marca+' — '+e.modelo;
           var cli=e.clientes?e.clientes.nome:'';
           var prevBadge=e.preventiva_proxima_horas?'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:#FFF7ED;color:#E07015;border:1px solid #FED7AA;margin-left:6px"><i class="ti ti-bell"></i> '+e.preventiva_proxima_horas+'h</span>':'';
-          return '<div class="card" style="margin-bottom:10px">'
+          return '<div class="card" data-eid="'+e.id+'" style="margin-bottom:10px">'
             +'<div style="display:flex;align-items:flex-start;gap:12px">'
             +'<div style="width:40px;height:40px;border-radius:10px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;border:1px solid #FED7AA">🚧</div>'
             +'<div style="flex:1">'
@@ -1321,11 +1377,12 @@ async function loadCadastros(){
       });
     }
     if(cadTab==='tecnicos'){
-      var d=await sbGet('tecnicos','?select=*&order=nome');
-      list.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div style="font-size:13px;color:#6B7280">'+d.length+' técnico'+(d.length!==1?'s':'')+'</div><button class="btn btn-p" style="padding:8px 14px;font-size:13px" onclick="showFormTec()"><i class="ti ti-plus"></i> Novo</button></div>'
-        +(d.length?d.map(function(t){return'<div class="card" style="margin-bottom:10px"><div style="display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;border-radius:50%;background:#1A1F2E;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#E07015;flex-shrink:0">'+t.nome.split(' ').slice(0,2).map(function(n){return n[0];}).join('').toUpperCase()+'</div><div><div style="font-size:15px;font-weight:600;color:#111827">'+t.nome+'</div><div style="font-size:13px;color:#6B7280;margin-top:2px">'+([t.telefone,t.email].filter(Boolean).join(' · ')||'Sem contato')+'</div></div></div></div>';}).join('')
+      var d=await sbGet('tecnicos','?select=*&order=nome'); window._tecData=d;
+      list.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><div style="font-size:13px;color:#6B7280">'+d.length+' técnico'+(d.length!==1?'s':'')+'</div>'+((typeof isAdmin==='function'&&isAdmin())?'<button class="btn btn-p" style="padding:8px 14px;font-size:13px" onclick="showFormTec()"><i class="ti ti-plus"></i> Novo</button>':'')+'</div>'
+        +(d.length?d.map(function(t){return'<div class="card" data-tid='+t.id+' style="margin-bottom:10px"><div style="display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;border-radius:50%;background:#1A1F2E;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#E07015;flex-shrink:0">'+t.nome.split(' ').slice(0,2).map(function(n){return n[0];}).join('').toUpperCase()+'</div><div><div style="font-size:15px;font-weight:600;color:#111827">'+t.nome+'</div><div style="font-size:13px;color:#6B7280;margin-top:2px">'+([t.telefone,t.email].filter(Boolean).join(' · ')||'Sem contato')+'</div>'+(adm?'<div style="display:flex;gap:6px;margin-top:8px">'+'<button class="btn btn-s" style="font-size:12px;padding:5px 10px" onclick="editarTecnico('+t.id+')">✏ Editar</button>'+'<button class="btn" style="font-size:12px;padding:5px 10px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA" onclick="excluirTecnico('+t.id+',this)">🗑</button>'+'</div>':'')+'</div></div></div>';}).join('')
         :'<div style="text-align:center;padding:50px 20px;color:#9CA3AF"><i class="ti ti-user-cog" style="font-size:48px;display:block;margin-bottom:12px;opacity:.3"></i><div style="font-weight:600;color:#374151">Nenhum técnico cadastrado</div></div>');
     }
+  addAdminBtns(list);
   }catch(e){list.innerHTML='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px;color:#DC2626;font-size:13px">Erro: '+e.message+'</div>';}
 }
 function showFormCli(){showScreen('scr-form-cli');['nome','doc','tel','email','end','cidade','uf'].forEach(function(f){document.getElementById('cli-'+f).value='';});}
