@@ -32,11 +32,13 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .btn-s:hover{background:#F9FAFB}
 .btn-g{background:transparent;color:#6B7280;border:none}
 .btn-d{background:#FEF2F2;color:#DC2626;border:1px solid #FECACA}
-.hdr{background:#1A1F2E;padding:0 20px;height:60px;display:flex;align-items:center;justify-content:space-between;position:fixed;top:0;left:0;right:0;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,.2)}
-.hdr-logo{display:flex;align-items:center;gap:10px}
+.hdr{background:#1A1F2E;padding:0 12px;height:60px;display:flex;align-items:center;justify-content:space-between;position:fixed;top:0;left:0;right:0;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,.2);gap:8px}
+.hdr-logo{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:1}
 .hdr-logo img{width:36px;height:36px;object-fit:contain;border-radius:50%;background:#0D0A06}
 .hdr-logo-text div:first-child{font-size:15px;font-weight:700;color:#fff;letter-spacing:.08em}
 .hdr-logo-text div:last-child{font-size:9px;color:#E07015;text-transform:uppercase;letter-spacing:.14em}
+  @media(max-width:420px){.hdr-logo-text div:last-child{display:none}.hdr-logo img{width:30px;height:30px}.hdr-logo-text div:first-child{font-size:13px}}
+  @media(max-width:360px){.hdr-logo-text{display:none}}
 .screen{min-height:100vh;display:none}.screen.active{display:block}#scr-login.active{display:flex}
 
 .bnav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #E5E7EB;display:grid;grid-template-columns:1fr 1fr;z-index:100;box-shadow:0 -2px 8px rgba(0,0,0,.06)}
@@ -130,7 +132,7 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
         <div>Manutenção e Suporte</div>
       </div>
     </div>
-    <div id="user-info-dash" style="display:flex;align-items:center;gap:6px;margin-right:4px"></div><button class="btn btn-p btn-nova-os" onclick="showNova()"><i class="ti ti-plus"></i><span class="nova-os-txt"> Nova OS</span></button>
+    <div id="user-info-dash" style="display:flex;align-items:center;gap:4px;margin-right:2px;min-width:0;flex-shrink:1;overflow:hidden"></div><button class="btn btn-p btn-nova-os" onclick="showNova()" style="flex-shrink:0;white-space:nowrap"><i class="ti ti-plus"></i><span class="nova-os-txt"> Nova OS</span></button>
   </div>
   <div style="padding:16px;padding-bottom:90px">
     <!-- Indicador de cache -->
@@ -598,6 +600,7 @@ async function atualizarBadgePendentes(){
 async function salvarOSOffline(sigTec,sigCli){
   var dados=Object.assign({},formData);
   ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!dados[f])dados[f]=null;});
+  dados.status='concluido'; // OS finalizada offline também é concluída
   if(sigTec===undefined)sigTec=getSignature('canvas-tec');
   if(sigCli===undefined)sigCli=getSignature('canvas-cli');
   if(sigTec)dados.assinatura_tecnico=sigTec;
@@ -616,6 +619,9 @@ async function salvarOSOffline(sigTec,sigCli){
 }
 async function sincronizarFila(){
   if(!navigator.onLine){toast('Sem conexão com a internet','warning');return;}
+  // Trava anti-concorrência: impede que dois syncs rodem ao mesmo tempo (evita duplicatas)
+  if(window._syncLock){ console.log('[sync] já em andamento, ignorando'); return; }
+  window._syncLock=true; window._syncLockTime=Date.now();
 
   var p=await filaGetAll();
   var chavesRasc=[];
@@ -628,7 +634,7 @@ async function sincronizarFila(){
     chavesRasc=todas.filter(function(k){return String(k).startsWith('rascunho:');});
   }catch(e){}
 
-  if(!p.length&&!chavesRasc.length){toast('Nenhuma OS pendente','info');return;}
+  if(!p.length&&!chavesRasc.length){window._syncLock=false;toast('Nenhuma OS pendente','info');return;}
 
   var b=document.getElementById('badge-pendentes');
   if(b){b.textContent='Sincronizando...';b.style.background='#E07015';}
@@ -680,6 +686,7 @@ async function sincronizarFila(){
   }
 
   await atualizarBadgePendentes();
+  window._syncLock=false; // libera a trava
   if(ok>0){toast(ok+' registro'+(ok>1?'s':'')+' sincronizado'+(ok>1?'s':'')+'!'+(erros>0?' ('+erros+' com erro)':''),'success');showDash();}
   else if(erros>0){toast('Erro ao sincronizar — tente novamente','error');}
 }
@@ -1040,9 +1047,10 @@ async function fazerLogin(tecnicoId, nome, pin){
 function atualizarHeaderUsuario(){
   var el = document.getElementById('user-info-dash');
   if(!el || !_sessao) return;
+  var primeiroNome = (_sessao.nome||'').split(' ')[0];
   var ico = _sessao.isAdmin
     ? '<i class="ti ti-shield-check" style="color:#E07015;margin-right:3px"></i><span style="color:#E07015;font-weight:700">Admin</span>'
-    : '<i class="ti ti-user" style="margin-right:3px"></i>' + _sessao.nome;
+    : '<i class="ti ti-user" style="margin-right:3px"></i><span style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle">' + primeiroNome + '</span>';
   var pinB = _sessao.isAdmin ? '<button id="btn-open-pin" class="btn btn-s" style="padding:4px 8px;font-size:11px">PIN</button>' : '';
   el.innerHTML = '<span style="font-size:12px;color:#9CA3AF;margin-right:4px">'+ico+'</span>'
     + pinB + '<button id="btn-logout" class="btn btn-s" style="padding:4px 8px;font-size:11px"><i class="ti ti-logout"></i></button>';
@@ -1181,7 +1189,7 @@ async function showDash(){
     document.getElementById('st').textContent=d.length;
     document.getElementById('sh').textContent=d.filter(function(a){return a.data_atendimento===hj;}).length;
     document.getElementById('sp').textContent=d.filter(function(a){return a.status!=='concluido'&&a.status!=='rascunho';}).length;
-    // Rascunhos locais (IndexedDB): sem duplicatas, versão local prevalece
+    // ── Itens LOCAIS: rascunhos (cache) + OS finalizadas offline (fila) ──
     var todasChaves=[];
     try{
       var db2=await abrirDB();
@@ -1198,21 +1206,46 @@ async function showDash(){
         if(rp&&rp.atendimento&&rp.atendimento.id) rascsLocais.push(rp.atendimento);
       }
     }
+    // OS finalizadas offline aguardando envio (fila IndexedDB)
+    var filaLocais=[];
+    try{
+      var filaPend=await filaGetAll();
+      filaPend.forEach(function(pkg){
+        if(pkg&&pkg.atendimento&&pkg.atendimento.id) filaLocais.push(pkg.atendimento);
+      });
+    }catch(e){}
     // IDs já existentes no Supabase
     var idsSupabase=new Set(d.map(function(a){return a.id;}));
-    // Rascunhos só locais (RASC_ = nunca foram ao Supabase)
-    var somenteLocais=rascsLocais.filter(function(r){return!idsSupabase.has(r.id);});
-    // Supabase list: substituir por versão local se houver edição offline
+    // Locais só existem no dispositivo (RASC_ ou OFFLINE_ = nunca foram ao Supabase)
+    var todosLocais=rascsLocais.concat(filaLocais);
+    // Dedup local por id (evita mesmo item repetido em rascunho e fila)
+    var vistosLocais={};
+    var somenteLocais=[];
+    todosLocais.forEach(function(r){
+      if(idsSupabase.has(r.id)) return;      // já está no Supabase, ignora versão local
+      if(vistosLocais[r.id]) return;          // já adicionado
+      vistosLocais[r.id]=true;
+      somenteLocais.push(r);
+    });
+    // Supabase list: substituir por versão local se houver edição offline pendente
     var listaFinal=d.map(function(a){
       var local=rascsLocais.find(function(r){return r.id===a.id;});
       return local||a;
     });
-    // Locais puros primeiro, depois os do Supabase (com versão local aplicada)
+    // Locais puros primeiro, depois os do Supabase
     todosAtendimentos=somenteLocais.concat(listaFinal);
     renderAtendimentos(todosAtendimentos);
     var _now=Date.now();if(!window._lastPre||_now-window._lastPre>300000){window._lastPre=_now;preCachearDados();}
     verificarPreventivas();
     iniciarAutoRefresh(); // inicia/reinicia o timer ao entrar no dashboard
+    // Auto-sync ao abrir: se online e houver pendências locais, envia em segundo plano
+    if(navigator.onLine && somenteLocais.length>0 && !window._syncEmAndamento){
+      window._syncEmAndamento=true;
+      setTimeout(async function(){
+        try{ await sincronizarFila(); }catch(e){}
+        window._syncEmAndamento=false;
+      }, 1500);
+    }
   }catch(e){
     document.getElementById('dash-list').innerHTML='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px;color:#DC2626;font-size:13px"><i class="ti ti-alert-circle" style="margin-right:6px"></i>Erro: '+e.message+'</div>';
   }
@@ -1850,6 +1883,9 @@ async function salvarRascunho(){
 // SALVAR OS (online + offline)
 // ════════════════════════════════════════════════════════════
 async function salvarOS(){
+  // Confirmação antes de finalizar
+  var okFinalizar = await confirmar('Deseja realmente finalizar esta OS? Ela será registrada como concluída.','Sim, finalizar','Cancelar');
+  if(!okFinalizar) return;
   var btn=document.getElementById('btn-save');btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Salvando...';
   var sigTec=getSignature('canvas-tec'),sigCli=getSignature('canvas-cli');
 
@@ -1867,6 +1903,7 @@ async function salvarOS(){
     ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!dados[f])dados[f]=null;});
     if(sigTec)dados.assinatura_tecnico=sigTec;
     if(sigCli)dados.assinatura_cliente=sigCli;
+    dados.status='concluido'; // Finalizar OS = status concluído
 
     var atObj;
     if(currentOSId&&!String(currentOSId).startsWith('RASC_')){
@@ -1958,6 +1995,8 @@ if('serviceWorker' in navigator){
 window.addEventListener('online', function(){
   atualizarStatusOffline();
   preCachearDados();
+  // Reset defensivo: se a trava ficou presa por falha anterior, libera
+  if(window._syncLockTime && Date.now()-window._syncLockTime>30000){ window._syncLock=false; }
   setTimeout(async function(){
     try{
       var fila=await filaGetAll();
