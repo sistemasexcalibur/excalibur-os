@@ -227,9 +227,10 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 <!-- RELATÓRIO -->
 <div id="scr-relatorio" class="screen">
   <div class="hdr no-print">
-    <div style="display:flex;gap:10px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn btn-s" onclick="showDash()" style="color:#fff;border-color:#374151;background:transparent"><i class="ti ti-arrow-left"></i> Voltar</button>
       <button class="btn btn-p" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir / PDF</button>
+      <button id="btn-reabrir" class="btn" onclick="reabrirOS()" style="display:none;background:#F59E0B;color:#fff"><i class="ti ti-lock-open"></i> Reabrir OS</button>
     </div>
   </div>
   <div id="relatorio-body" style="padding:16px;padding-top:80px;padding-bottom:40px"></div>
@@ -1946,7 +1947,40 @@ async function salvarOS(){
 // ════════════════════════════════════════════════════════════
 // RELATÓRIO
 // ════════════════════════════════════════════════════════════
-async function showRelatorio(os){
+
+    // ════════════════════════════════════════════════════════
+    // REABRIR OS — só admin, dupla confirmação, registra quem/quando
+    // ════════════════════════════════════════════════════════
+    async function reabrirOS(){
+      if(!isAdmin()){ toast('Apenas administradores podem reabrir OS','warning'); return; }
+      if(!currentOS||!currentOS.id){ toast('OS não identificada','error'); return; }
+      if(currentOS.status!=='concluido'){ toast('Esta OS não está concluída','info'); return; }
+      var ok1=await confirmar('Deseja reabrir esta OS concluída? Ela voltará para "Em andamento" e poderá ser editada.','Sim, reabrir','Cancelar');
+      if(!ok1) return;
+      var ok2=await confirmar('Confirma a reabertura? Esta ação ficará registrada com seu nome e a data.','Confirmar reabertura','Cancelar');
+      if(!ok2) return;
+      try{
+        var agora=new Date().toISOString();
+        var quem=nomeSessao ? nomeSessao() : (_sessao&&_sessao.nome)||'Admin';
+        var totalAnt=(currentOS.total_reaberturas||0)+1;
+        await sbPatch('atendimentos',currentOS.id,{
+          status:'em_andamento',
+          reaberta_em:agora,
+          reaberta_por:quem,
+          total_reaberturas:totalAnt
+        });
+        currentOS.status='em_andamento';
+        currentOS.reaberta_em=agora;
+        currentOS.reaberta_por=quem;
+        currentOS.total_reaberturas=totalAnt;
+        toast('OS reaberta — faça as alterações e finalize novamente','success',5000);
+        editarOS(currentOS);
+      }catch(e){
+        dialogo('Erro ao reabrir OS: '+String(e.message||e),'error');
+      }
+    }
+
+    async function showRelatorio(os){
   showScreen('scr-relatorio');
   var body=document.getElementById('relatorio-body');
   body.innerHTML='<div style="text-align:center;padding:40px;color:#9CA3AF">Carregando relatório...</div>';
@@ -1973,12 +2007,19 @@ async function showRelatorio(os){
       +'<div style="font-size:13px;color:#9CA3AF;margin-top:2px">Excalibur Manutenção e Suporte</div></div>'
       +'<div style="text-align:right"><div style="font-size:20px;font-weight:700;color:#E07015">'+os.numero_os+'</div>'
       +'<div style="font-size:12px;color:#9CA3AF;margin-top:2px">'+os.data_atendimento+'</div>'+badge(os.status)+'</div></div>'
+      +(os.reaberta_em?'<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:#B45309"><i class="ti ti-lock-open" style="margin-right:5px"></i>OS reaberta em '+new Date(os.reaberta_em).toLocaleString('pt-BR')+(os.reaberta_por?' por '+os.reaberta_por:'')+(os.total_reaberturas>1?' ('+os.total_reaberturas+'ª reabertura)':'')+'</div>':'')
       +'<div class="card" style="margin-bottom:14px">'+ir('Cliente',cli&&cli.nome)+ir('Técnico',tec&&tec.nome)+ir('Equipamento',eq?(eq.tipo+' '+eq.marca+' '+eq.modelo):null)+ir('Tipo',tM[os.tipo_manutencao])+ir('Local',os.local_atendimento)+ir('Horímetro/Km',os.horimetro_hodometro)+ir('Chegada',os.hora_chegada)+ir('Saída',os.hora_saida)+ir('Recebido por',os.nome_responsavel_cliente)+'</div>'
       +((os.problema_relatado||os.diagnostico_tecnico||os.servicos_executados)?'<div class="card" style="margin-bottom:14px"><div style="font-size:11px;font-weight:600;color:#E07015;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px">Diagnóstico e Serviços</div>'+tb('Problema Relatado',os.problema_relatado)+tb('Diagnóstico Técnico',os.diagnostico_tecnico)+tb('Serviços Executados',os.servicos_executados)+tb('Peças Substituídas',os.pecas_substituidas)+tb('Observações',os.observacoes)+tb('Recomendações',os.recomendacoes)+'</div>':'')
       +(ck.length?'<div class="card" style="margin-bottom:14px"><div style="font-size:11px;font-weight:600;color:#E07015;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px">Checklist de Inspeção</div>'+cats.map(function(cat){return'<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">'+cat+'</div>'+ck.filter(function(c){return c.categoria===cat;}).map(function(c){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:6px;background:'+rBG[c.resultado]+';margin-bottom:4px"><span style="font-size:13px;color:#374151">'+c.item+'</span><span style="font-size:11px;font-weight:700;color:'+rC[c.resultado]+';white-space:nowrap;margin-left:12px">'+rL[c.resultado]+(c.observacao?' — '+c.observacao:'')+'</span></div>';}).join('')+'</div>';}).join('')+'</div>':'')
       +(ft.length?'<div class="card" style="margin-bottom:14px"><div style="font-size:11px;font-weight:600;color:#E07015;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px">Registro Fotográfico</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+ft.map(function(f){return'<div style="border:1px solid #E5E7EB;border-radius:10px;overflow:hidden"><img src="'+f.url+'" style="width:100%;height:130px;object-fit:cover;display:block"><div style="padding:8px 10px;background:#F9FAFB"><div style="font-size:12px;font-weight:600;color:#111827">'+(f.legenda||'—')+'</div><div style="font-size:11px;color:#9CA3AF;text-transform:capitalize">'+f.tipo+'</div></div></div>';}).join('')+'</div></div>':'')
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px;padding:0 8px">'
       +[{l:'Técnico Responsável',n:tec&&tec.nome},{l:'Responsável pelo Recebimento',n:os.nome_responsavel_cliente}].map(function(sig){return'<div style="text-align:center"><div style="height:90px;border:1px solid #E5E7EB;border-radius:8px;background:#F9FAFB;margin-bottom:8px;display:flex;align-items:center;justify-content:center;overflow:hidden">'+(os.assinatura_tecnico&&sig.l.indexOf('Técnico')!==-1?'<img src="'+os.assinatura_tecnico+'" style="max-height:86px;max-width:100%;object-fit:contain">':os.assinatura_cliente&&sig.l.indexOf('Recebimento')!==-1?'<img src="'+os.assinatura_cliente+'" style="max-height:86px;max-width:100%;object-fit:contain">':'<span style="font-size:12px;color:#D1D5DB">Sem assinatura</span>')+'</div><div style="font-size:13px;font-weight:600;color:#111827">'+(sig.n||'—')+'</div><div style="font-size:11px;color:#9CA3AF;margin-top:2px">'+sig.l+'</div></div>';}).join('')+'</div>';
+    // Botão Reabrir: só admin, só OS concluída
+    var btnR=document.getElementById('btn-reabrir');
+    if(btnR){
+      var podeLiberar=isAdmin()&&os.status==='concluido';
+      btnR.style.display=podeLiberar?'inline-flex':'none';
+    }
   }catch(e){body.innerHTML='<div style="color:#DC2626;padding:20px">Erro: '+e.message+'</div>';}
 }
 
