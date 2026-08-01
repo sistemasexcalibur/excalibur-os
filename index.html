@@ -507,6 +507,7 @@ function abrirSelForm(fld,titulo){
     var opts=(window._selOpts&&window._selOpts[fld])||[];
     abrirPickerOpcoes(titulo,opts,formData[fld]||'',function(v){
       formData[fld]=v;
+      autoSalvar();
       var lbl='Selecione...';
       for(var i=0;i<opts.length;i++){ if(opts[i].value===v){ lbl=opts[i].label; break; } }
       var el=document.getElementById('selbtn-'+fld);
@@ -520,6 +521,7 @@ function abrirSelCliente(){
         for(var i=0;i<opts.length;i++){ if(opts[i].value===v){ lbl=opts[i].label; break; } }
         var el=document.getElementById('selbtn-cliente_id');
         if(el){ el.textContent=lbl; el.className=v?'':'ph'; }
+        autoSalvar();
         selectCliente(v).then(function(){
           // Atualizar opções de equipamento no cache do picker
           window._selOpts['equipamento_id']=equipamentos.map(function(e){return {value:e.id,label:e.tipo+' '+e.marca+' '+e.modelo};});
@@ -539,6 +541,7 @@ function abrirPickerHora(fld){
       for(var h=0;h<24;h++){ for(var m=0;m<60;m+=15){ var s=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); horas.push({value:s,label:s}); } }
       abrirPickerOpcoes('Selecionar horário',horas,formData[fld]||'',function(v){
         formData[fld]=v;
+        autoSalvar();
         var el=document.getElementById('selbtn-'+fld);
         if(el){ el.textContent=v; el.className=''; }
       },true);
@@ -678,6 +681,77 @@ async function cacheDel(k){
     });
   }catch(e){return false;}
 }
+
+    // ══════════════════════════════════════════════════════════
+    // AUTO-SAVE — grava o rascunho atual a cada mudança
+    // Evita perda de dados se o usuário sair da tela sem salvar
+    // ══════════════════════════════════════════════════════════
+    var _autoSaveTimer=null;
+    function autoSalvar(){
+      // Debounce: agrupa mudanças rápidas em uma gravação
+      if(_autoSaveTimer) clearTimeout(_autoSaveTimer);
+      _autoSaveTimer=setTimeout(function(){ _autoSalvarAgora(); }, 600);
+    }
+    async function _autoSalvarAgora(){
+      // Só salva se há um formulário ativo com algum dado preenchido
+      if(typeof formData==='undefined'||!formData) return;
+      var temDados=formData.local_atendimento||formData.problema_relatado||
+                   formData.diagnostico_tecnico||formData.servicos_executados||
+                   formData.equipamento_id||formData.cliente_id||
+                   (fotos&&fotos.length)||formData.observacoes;
+      if(!temDados) return;
+      try{
+        var pkg={
+          isAutoSave:true,
+          salvoEm:new Date().toISOString(),
+          currentOSId:currentOSId,
+          step:step,
+          formData:Object.assign({},formData),
+          checklist:(checklist||[]).map(function(c){return{c:c.c,i:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem};}),
+          fotos:(fotos||[]).map(function(f){return{preview:f.preview,legenda:f.legenda,tipo:f.tipo,isExisting:f.isExisting||false};})
+        };
+        await cacheSet('autosave:atual',pkg);
+      }catch(e){ console.warn('[autosave]',e.message); }
+    }
+    async function limparAutoSave(){
+      try{ await cacheDel('autosave:atual'); }catch(e){}
+    }
+    async function verificarAutoSave(){
+      // Chamado ao abrir o dashboard: se há rascunho automático, oferece retomar
+      try{
+        var pkg=await cacheGet('autosave:atual');
+        if(!pkg||!pkg.formData) return;
+        var quando=pkg.salvoEm?new Date(pkg.salvoEm):null;
+        var qStr=quando?quando.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+        var retomar=await confirmar('Você tem um atendimento não finalizado (salvo automaticamente'+(qStr?' em '+qStr:'')+'). Deseja continuar de onde parou?','Continuar','Descartar');
+        if(retomar){
+          restaurarAutoSave(pkg);
+        }else{
+          await limparAutoSave();
+        }
+      }catch(e){ console.warn('[autosave check]',e.message); }
+    }
+    function restaurarAutoSave(pkg){
+      pararAutoRefresh();
+      formData=Object.assign({},pkg.formData);
+      currentOSId=pkg.currentOSId||null;
+      step=pkg.step||0;
+      checklist=(pkg.checklist||[]).map(function(c,i){return{c:c.c,i:c.i,resultado:c.resultado||'ok',observacao:c.observacao||'',ordem:c.ordem!=null?c.ordem:i};});
+      fotos=(pkg.fotos||[]).map(function(f){return{preview:f.preview,legenda:f.legenda||'',tipo:f.tipo||'outro',isExisting:f.isExisting||false};});
+      // Carregar listas necessárias e abrir o form
+      Promise.all([sbGet('tecnicos','?select=id,nome&order=nome'),sbGet('clientes','?select=id,nome&order=nome')]).then(function(r){
+        tecnicos=r[0]||[];clientes=r[1]||[];
+        if(formData.cliente_id){
+          sbGet('equipamentos','?select=id,tipo,marca,modelo&cliente_id=eq.'+formData.cliente_id+'&order=tipo').then(function(eq){
+            equipamentos=eq||[];
+            showScreen('scr-nova');renderStep();
+          }).catch(function(){ equipamentos=[];showScreen('scr-nova');renderStep(); });
+        }else{
+          equipamentos=[];showScreen('scr-nova');renderStep();
+        }
+      }).catch(function(){ showScreen('scr-nova');renderStep(); });
+    }
+
 async function filaAdd(item){
   try{
     var db=await abrirDB();
@@ -1545,6 +1619,7 @@ async function showDash(){
     var _now=Date.now();if(!window._lastPre||_now-window._lastPre>300000){window._lastPre=_now;preCachearDados();}
     verificarPreventivas();
     iniciarAutoRefresh(); // inicia/reinicia o timer ao entrar no dashboard
+    if(!window._autoSaveVerificado){ window._autoSaveVerificado=true; setTimeout(verificarAutoSave, 800); }
     // Auto-sync ao abrir: se online e houver pendências locais, envia em segundo plano
     if(navigator.onLine && somenteLocais.length>0 && !window._syncEmAndamento){
       window._syncEmAndamento=true;
@@ -1641,51 +1716,56 @@ function switchTab(tab){cadTab=tab;showCadastros(tab);}
 
     function addAdminBtns(list){
       if(!isAdmin()) return;
-      var mkBtn=function(label, style, fn){
+      var mkBtn=function(label, tipo, fn){
         var b=document.createElement('button');
-        b.className='btn'; b.style.cssText=style;
+        b.className='btn btn-s';
+        var base='font-size:12px;padding:6px 12px;flex:1;min-width:0;white-space:nowrap';
+        if(tipo==='del') base+=';background:var(--red-100);color:var(--red-600);border:1px solid var(--red-100)';
+        b.style.cssText=base;
         b.innerHTML=label; b.onclick=fn; return b;
       };
       // CLIENTES
       list.querySelectorAll('[data-cid]').forEach(function(card){
         var id=card.getAttribute('data-cid');
         var item=_cliById(id); if(!item) return;
+        if(card.querySelector('.admin-actions')) return;
         var wrap=document.createElement('div');
-        wrap.style.cssText='display:flex;gap:6px;margin-top:10px';
-        wrap.appendChild(mkBtn('✏ Editar','font-size:12px;padding:5px 12px',function(){editarCliente(item);}));
-        wrap.appendChild(mkBtn('🗑 Excluir','font-size:12px;padding:5px 12px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA',function(){excluirCliente(item.id,item.nome);}));
-        var content=card.querySelector('div > div:last-child') || card;
-        content.appendChild(wrap);
+        wrap.className='admin-actions';
+        wrap.style.cssText='display:flex;gap:8px;margin-top:12px;width:100%';
+        wrap.appendChild(mkBtn('<i class="ti ti-pencil"></i> Editar','edit',function(){editarCliente(item);}));
+        wrap.appendChild(mkBtn('<i class="ti ti-trash"></i> Excluir','del',function(){excluirCliente(item.id,item.nome);}));
+        card.appendChild(wrap);
       });
-      // EQUIPAMENTOS — inserir Excluir ao lado do botão Ver Histórico
+      // EQUIPAMENTOS
       list.querySelectorAll('[data-eid]').forEach(function(card){
         var id=card.getAttribute('data-eid');
         var item=_eqById(id); if(!item) return;
+        if(card.querySelector('.admin-actions')) return;
         var label=(item.tipo||'')+' '+(item.marca||'')+' — '+(item.modelo||'');
         var histBtn=card.querySelector('.hist-btn');
+        var wrap=document.createElement('div');
+        wrap.className='admin-actions';
+        wrap.style.cssText='display:flex;gap:8px;margin-top:10px;width:100%';
+        // Mover o Ver Histórico para dentro do wrap (se existir) e juntar o Excluir
         if(histBtn){
-          var delBtn=mkBtn('🗑 Excluir','font-size:12px;padding:6px 12px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA',function(){excluirEquipamento(item.id,label);});
-          histBtn.parentNode.style.display='flex';
-          histBtn.parentNode.style.gap='8px';
-          histBtn.parentNode.style.marginTop='8px';
-          histBtn.parentNode.insertBefore(delBtn, histBtn.nextSibling);
-        } else {
-          var wrap=document.createElement('div');
-          wrap.style.cssText='margin-top:8px';
-          wrap.appendChild(mkBtn('🗑 Excluir','font-size:12px;padding:5px 12px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA',function(){excluirEquipamento(item.id,label);}));
-          card.appendChild(wrap);
+          histBtn.style.cssText='font-size:12px;padding:6px 12px;flex:1;min-width:0;white-space:nowrap';
+          histBtn.parentNode.removeChild(histBtn);
+          wrap.appendChild(histBtn);
         }
+        wrap.appendChild(mkBtn('<i class="ti ti-trash"></i> Excluir','del',function(){excluirEquipamento(item.id,label);}));
+        card.appendChild(wrap);
       });
       // TÉCNICOS
       list.querySelectorAll('[data-tid]').forEach(function(card){
         var id=card.getAttribute('data-tid');
         var item=_tecById(id); if(!item) return;
+        if(card.querySelector('.admin-actions')) return;
         var wrap=document.createElement('div');
-        wrap.style.cssText='display:flex;gap:6px;margin-top:10px';
-        wrap.appendChild(mkBtn('✏ Editar','font-size:12px;padding:5px 12px',function(){editarTecnico(item);}));
-        wrap.appendChild(mkBtn('🗑 Excluir','font-size:12px;padding:5px 12px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA',function(){excluirTecnico(item.id,item.nome);}));
-        var content=card.querySelector('div > div:last-child') || card;
-        content.appendChild(wrap);
+        wrap.className='admin-actions';
+        wrap.style.cssText='display:flex;gap:8px;margin-top:12px;width:100%';
+        wrap.appendChild(mkBtn('<i class="ti ti-pencil"></i> Editar','edit',function(){editarTecnico(item);}));
+        wrap.appendChild(mkBtn('<i class="ti ti-trash"></i> Excluir','del',function(){excluirTecnico(item.id,item.nome);}));
+        card.appendChild(wrap);
       });
     }
 
@@ -1870,7 +1950,7 @@ function renderBars(){
   document.getElementById('step-title').textContent=STEPS[step];
   document.getElementById('step-counter').textContent='Passo '+(step+1)+' de '+STEPS.length;
 }
-function setCheck(i,k,v){checklist[i][k]=v;renderStep();}
+function setCheck(i,k,v){checklist[i][k]=v;autoSalvar();renderStep();}
 function updateFoto(i,k,v){if(fotos[i])fotos[i][k]=v;}
 function removeFoto(i){
   fotos.splice(i,1);
@@ -1887,9 +1967,9 @@ function renderFotos(){
     html+='<div class="card" style="overflow:hidden;padding:0;margin-bottom:12px">'
       +'<img src="'+f.preview+'" style="width:100%;max-height:220px;object-fit:cover;display:block">'
       +'<div style="padding:12px">'
-      +'<input class="inp" style="margin-bottom:8px;font-size:14px" placeholder="Legenda da foto..." value="'+(f.legenda||'')+'" oninput="fotos['+i+'].legenda=this.value">'
+      +'<input class="inp" style="margin-bottom:8px;font-size:14px" placeholder="Legenda da foto..." value="'+(f.legenda||'')+'" oninput="fotos['+i+'].legenda=this.value;autoSalvar()">'
       +'<div style="display:flex;gap:8px">'
-      +'<select class="inp" style="flex:1;font-size:13px" onchange="fotos['+i+'].tipo=this.value">'+opts+'</select>'
+      +'<select class="inp" style="flex:1;font-size:13px" onchange="fotos['+i+'].tipo=this.value;autoSalvar()">'+opts+'</select>'
       +'<button class="btn btn-d" onclick="removeFoto('+i+')" style="padding:8px 12px"><i class="ti ti-trash"></i></button>'
       +'</div></div></div>';
   });
@@ -1938,8 +2018,8 @@ async function selectCliente(id){
     }
   }catch(e){}
 }
-function nextStep(){step++;renderStep();}
-function prevStep(){step--;renderStep();}
+function nextStep(){step++;autoSalvar();renderStep();}
+function prevStep(){step--;autoSalvar();renderStep();}
 function renderStep(){
   renderBars();
   document.getElementById('btn-prev').style.display=step>0?'flex':'none';
@@ -1961,7 +2041,7 @@ function renderStep(){
     }
     return '<div class="field"><label class="lbl">'+lbl+'</label>'
       +'<input class="inp" type="'+(type||'text')+'" value="'+(formData[fld]||'')+'" placeholder="'+(ph||'')+'"'
-      +' data-fld="'+fld+'" onchange="formData[this.dataset.fld]=this.value">'
+      +' data-fld="'+fld+'" oninput="formData[this.dataset.fld]=this.value;autoSalvar()">'
       +'</div>';
   }
   function sel(lbl,fld,opts){
@@ -1988,7 +2068,7 @@ function renderStep(){
   function ta(lbl,fld,ph,mh){
     return '<div class="field"><label class="lbl">'+lbl+'</label>'
       +'<textarea class="inp" style="min-height:'+(mh||90)+'px"'
-      +' data-fld="'+fld+'" onchange="formData[this.dataset.fld]=this.value"'
+      +' data-fld="'+fld+'" oninput="formData[this.dataset.fld]=this.value;autoSalvar()"'
       +' placeholder="'+(ph||'')+'">'+( formData[fld]||'')+'</textarea>'
       +'</div>';
   }
@@ -2179,7 +2259,7 @@ async function salvarRascunho(){
     currentOSId=id;
     toast('Rascunho salvo no dispositivo','success');
     await atualizarBadgePendentes();
-    btnOk();
+    await limparAutoSave();btnOk();
   }
 
   try{
@@ -2227,6 +2307,7 @@ async function salvarOS(){
 
   async function salvarLocal(){
     var atOff=await salvarOSOffline(sigTec,sigCli);
+    await limparAutoSave();
     currentOS=atOff;
     toast('OS salva no dispositivo — enviada automaticamente quando houver conexão','warning',5500);
     showDash();
@@ -2267,6 +2348,7 @@ async function salvarOS(){
       atObj=at;
     }
     if(atObj.id) await cacheDel('rascunho:'+atObj.id);
+    await limparAutoSave();
     currentOS=atObj;showRelatorio(atObj);
   }catch(e){
     var msg=String(e.message||e);
