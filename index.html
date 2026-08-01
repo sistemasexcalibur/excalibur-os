@@ -199,6 +199,16 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 #scr-dash,#scr-cadastros,#scr-nova,#scr-historico,#scr-relatorio{padding-top:calc(60px + env(safe-area-inset-top,0))!important}
 .picker-sheet{padding-bottom:env(safe-area-inset-bottom,0)}
 
+
+/* ── Botões de ícone no cabeçalho (padrão app mobile) ── */
+.hdr-icon-btn{width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border:none;border-radius:10px;background:rgba(255,255,255,.10);color:#fff;font-size:20px;cursor:pointer;transition:background .15s;padding:0}
+.hdr-icon-btn:active{background:rgba(255,255,255,.22)}
+.hdr-icon-primary{background:var(--accent-600)}
+.hdr-icon-primary:active{background:var(--accent-hover)}
+.hdr-icon-warn{background:#B7791F}
+.hdr-icon-warn:active{background:#96631A}
+.hdr-title{flex:1;min-width:0;text-align:center;font-size:16px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px}
+
 </style>
 </head>
 <body>
@@ -312,10 +322,10 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 <div id="scr-nova" class="screen">
   <div class="hdr no-print">
     <div style="display:flex;align-items:center;gap:10px">
-      <button class="btn btn-g" onclick="showDash()" style="padding:6px;color:var(--surface)"><i class="ti ti-arrow-left" style="font-size:20px"></i></button>
+      <button class="hdr-icon-btn" onclick="showDash()" aria-label="Voltar"><i class="ti ti-arrow-left"></i></button>
       <div>
         <div style="font-size:11px;color:var(--accent-600);font-weight:600;text-transform:uppercase;letter-spacing:.1em">Nova Ordem de Serviço</div>
-        <div id="step-title" style="font-size:15px;font-weight:600;color:var(--surface)">Identificação</div>
+        <div id="step-title" style="font-size:15px;font-weight:600;color:#fff">Identificação</div>
       </div>
     </div>
     <div style="font-size:12px;font-weight:600;color:var(--text-muted)" id="step-counter">Passo 1 de 4</div>
@@ -339,13 +349,14 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 <!-- RELATÓRIO -->
 <div id="scr-relatorio" class="screen">
   <div class="hdr no-print">
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn btn-s" onclick="showDash()" style="color:var(--surface);border-color:var(--text-secondary);background:transparent"><i class="ti ti-arrow-left"></i> Voltar</button>
-      <button class="btn btn-p" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir / PDF</button>
-      <button id="btn-reabrir" class="btn" onclick="reabrirOS()" style="display:none;background:#F59E0B;color:var(--surface)"><i class="ti ti-lock-open"></i> Reabrir OS</button>
+    <button class="hdr-icon-btn" onclick="showDash()" aria-label="Voltar"><i class="ti ti-arrow-left"></i></button>
+    <div class="hdr-title">Relatório</div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      <button id="btn-reabrir" class="hdr-icon-btn hdr-icon-warn" onclick="reabrirOS()" style="display:none" aria-label="Reabrir OS" title="Reabrir OS"><i class="ti ti-lock-open"></i></button>
+      <button class="hdr-icon-btn hdr-icon-primary" onclick="window.print()" aria-label="Imprimir ou salvar PDF" title="Imprimir / PDF"><i class="ti ti-printer"></i></button>
     </div>
   </div>
-  <div id="relatorio-body" style="padding:16px;padding-top:80px;padding-bottom:40px"></div>
+  <div id="relatorio-body" style="padding:16px;padding-top:calc(76px + env(safe-area-inset-top,0));padding-bottom:40px"></div>
 </div>
 
 <!-- CADASTROS -->
@@ -430,14 +441,12 @@ select.inp{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 <!-- HISTÓRICO DO EQUIPAMENTO -->
 <div id="scr-historico" class="screen" style="padding-top:60px">
   <div class="hdr">
-    <div style="display:flex;align-items:center;gap:10px">
-      <button class="btn btn-g" onclick="showCadastros('equipamentos')" style="padding:6px;color:#fff"><i class="ti ti-arrow-left" style="font-size:20px"></i></button>
-      <div>
-        <div style="font-size:10px;color:var(--accent-600);font-weight:600;text-transform:uppercase;letter-spacing:.1em" id="hist-subtitle">Histórico</div>
-        <div style="font-size:15px;font-weight:600;color:#fff" id="hist-subtitle">Histórico</div>
-        <div style="font-size:15px;font-weight:600;color:#fff" id="hist-title">Equipamento</div>
-      </div>
+    <button class="hdr-icon-btn" onclick="showCadastros('equipamentos')" aria-label="Voltar"><i class="ti ti-arrow-left"></i></button>
+    <div style="flex:1;min-width:0;padding:0 4px">
+      <div style="font-size:10px;color:var(--accent-600);font-weight:700;text-transform:uppercase;letter-spacing:.1em">Histórico</div>
+      <div id="hist-title" style="font-size:15px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Equipamento</div>
     </div>
+    <button id="btn-hist-csv" class="hdr-icon-btn" onclick="downloadHistorico()" style="display:none" aria-label="Baixar CSV" title="Baixar histórico em CSV"><i class="ti ti-download"></i></button>
   </div>
   <div id="historico-list" style="padding:16px;padding-bottom:90px"></div>
   <div class="bnav">
@@ -1116,9 +1125,43 @@ function badge(s){
 // ════════════════════════════════════════════════════════════
 // FEATURE 1: HISTÓRICO DO EQUIPAMENTO
 // ════════════════════════════════════════════════════════════
-async function showHistorico(equipId, nome, cliente){
+
+    // ── Exportar histórico do equipamento em CSV (admin) ──
+    function downloadHistorico(){
+      var d=window._histData||[];
+      if(!d.length){ toast('Nenhum registro para exportar','info'); return; }
+      var nomeEq=(document.getElementById('hist-title')||{}).textContent||'equipamento';
+      var slug=nomeEq.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'-').replace(/^-|-$/g,'').toLowerCase();
+      var TIPOS={corretiva:'Corretiva',preventiva:'Preventiva',emergencial:'Emergencial',inspecao:'Inspecao'};
+      var STATUS={concluido:'Concluido',em_andamento:'Em andamento',rascunho:'Rascunho',pendente_peca:'Pendente peca',aguardando_aprovacao:'Aguardando aprovacao'};
+      var cols=['OS','Data','Tipo','Status','Tecnico','Horimetro/Km','Hora Chegada','Hora Saida',
+                'Problema Relatado','Diagnostico','Servicos Executados','Pecas Substituidas','Observacoes','Recomendacoes'];
+      var esc=function(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; };
+      var linhas=[cols.map(esc).join(',')];
+      d.forEach(function(a){
+        linhas.push([
+          a.numero_os, a.data_atendimento,
+          TIPOS[a.tipo_manutencao]||a.tipo_manutencao,
+          STATUS[a.status]||a.status,
+          (a.tecnicos&&a.tecnicos.nome)||'',
+          a.horimetro_hodometro, a.hora_chegada, a.hora_saida,
+          a.problema_relatado, a.diagnostico_tecnico, a.servicos_executados,
+          a.pecas_substituidas, a.observacoes, a.recomendacoes
+        ].map(esc).join(','));
+      });
+      var csv='\uFEFF'+linhas.join('\r\n');   // BOM para o Excel abrir com acentos
+      var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url; a.download='historico-'+(slug||'equipamento')+'.csv';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(url);},1000);
+      toast('Histórico exportado ('+d.length+' registros)','success');
+    }
+
+    async function showHistorico(equipId, nome, cliente){
   document.getElementById('hist-title').textContent = nome||'Equipamento';
-  document.getElementById('hist-subtitle').textContent = cliente?'Histórico — '+cliente:'Histórico';
+  var _hsub=document.getElementById('hist-subtitle'); if(_hsub) _hsub.textContent = cliente?'Histórico — '+cliente:'Histórico';
   showScreen('scr-historico');
   window.scrollTo(0,0);
   var list=document.getElementById('historico-list');
@@ -1184,6 +1227,9 @@ async function showHistorico(equipId, nome, cliente){
         else{currentOS=os;showRelatorio(os);}
       });
     });
+    // Botão CSV: apenas admin e apenas com registros
+    var _csvBtn=document.getElementById('btn-hist-csv');
+    if(_csvBtn) _csvBtn.style.display=(isAdmin()&&d.length)?'flex':'none';
 
   }catch(e){
     list.innerHTML='<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px;color:#DC2626;font-size:13px">Erro: '+e.message+'</div>';
@@ -2412,7 +2458,7 @@ async function salvarOS(){
     var btnR=document.getElementById('btn-reabrir');
     if(btnR){
       var podeLiberar=isAdmin()&&os.status==='concluido';
-      btnR.style.display=podeLiberar?'inline-flex':'none';
+      btnR.style.display=podeLiberar?'flex':'none';
     }
   }catch(e){body.innerHTML='<div style="color:#DC2626;padding:20px">Erro: '+e.message+'</div>';}
 }

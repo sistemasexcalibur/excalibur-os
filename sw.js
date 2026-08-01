@@ -1,5 +1,5 @@
 // Service Worker — Excalibur Campo OS v2
-const CACHE = 'excalibur-v1785600146';
+const CACHE = 'excalibur-v1785601419';
 const OWN = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-maskable-192.png', './icon-maskable-512.png'];
 
 self.addEventListener('install', function(e) {
