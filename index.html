@@ -972,9 +972,16 @@ async function salvarOSOffline(sigTec,sigCli){
   if(sigCli===undefined)sigCli=getSignature('canvas-cli');
   if(sigTec)dados.assinatura_tecnico=sigTec;
   if(sigCli)dados.assinatura_cliente=sigCli;
-  var tmpId='OFFLINE_'+Date.now();
+  // A OS já existe no servidor? (id UUID real, não RASC_/OFFLINE_)
+  var idExistente=(currentOSId&&!String(currentOSId).startsWith('RASC_')&&!String(currentOSId).startsWith('OFFLINE_'))?currentOSId:null;
+  var tmpId=idExistente||('OFFLINE_'+Date.now());
   var pkg={tmpId:tmpId,
-    atendimento:Object.assign({},dados,{id:tmpId,numero_os:'PENDENTE',_pendente:true}),
+    updateId:idExistente,   // se preenchido, o sync faz PATCH em vez de criar nova OS
+    atendimento:Object.assign({},dados,{
+      id:tmpId,
+      numero_os:idExistente?(dados.numero_os||formData.numero_os||'—'):'PENDENTE',
+      _pendente:true
+    }),
     checklist:checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem};}),
     fotos:fotos.map(function(f){return{preview:f.preview,legenda:f.legenda,tipo:f.tipo,isExisting:f.isExisting||false};}),
     criadoEm:new Date().toISOString()
@@ -1011,13 +1018,28 @@ async function sincronizarFila(){
   for(var i=0;i<p.length;i++){
     var pkg=p[i];
     try{
-      var no=await sbRpc('gerar_numero_os');
-      var de=Object.assign({},pkg.atendimento,{numero_os:no});
-      delete de.id;delete de._pendente;
-      ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!de[f])de[f]=null;});
-      var at=(await sbPost('atendimentos',de))[0];
-      if(pkg.checklist&&pkg.checklist.length) await sbPost('checklist_itens',pkg.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at.id});}));
-      if(pkg.fotos){for(var j=0;j<pkg.fotos.length;j++){var f=pkg.fotos[j];if(!f.isExisting) await sbPost('fotos',{atendimento_id:at.id,url:f.preview,legenda:f.legenda,tipo:f.tipo,ordem:j});}}
+      var at;
+      if(pkg.updateId){
+        // OS JÁ EXISTE no servidor → ATUALIZA (não cria duplicata)
+        var du=Object.assign({},pkg.atendimento);
+        delete du.id;delete du._pendente;delete du.numero_os;  // número nunca muda
+        ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!du[f])du[f]=null;});
+        await sbPatch('atendimentos',pkg.updateId,du);
+        at={id:pkg.updateId};
+        // Substitui checklist e fotos antigos pelos novos
+        try{ await sbDelete('checklist_itens','?atendimento_id=eq.'+pkg.updateId); }catch(e2){}
+        if(pkg.checklist&&pkg.checklist.length) await sbPost('checklist_itens',pkg.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at.id});}));
+        if(pkg.fotos){for(var jj=0;jj<pkg.fotos.length;jj++){var ff=pkg.fotos[jj];if(!ff.isExisting) await sbPost('fotos',{atendimento_id:at.id,url:ff.preview,legenda:ff.legenda,tipo:ff.tipo,ordem:jj});}}
+      }else{
+        // OS NOVA → cria com número gerado
+        var no=await sbRpc('gerar_numero_os');
+        var de=Object.assign({},pkg.atendimento,{numero_os:no});
+        delete de.id;delete de._pendente;delete de.updateId;
+        ['tecnico_id','cliente_id','equipamento_id','hora_chegada','hora_saida','horimetro_hodometro','local_atendimento','nome_responsavel_cliente'].forEach(function(f){if(!de[f])de[f]=null;});
+        at=(await sbPost('atendimentos',de))[0];
+        if(pkg.checklist&&pkg.checklist.length) await sbPost('checklist_itens',pkg.checklist.map(function(c){return Object.assign({},c,{atendimento_id:at.id});}));
+        if(pkg.fotos){for(var j=0;j<pkg.fotos.length;j++){var f=pkg.fotos[j];if(!f.isExisting) await sbPost('fotos',{atendimento_id:at.id,url:f.preview,legenda:f.legenda,tipo:f.tipo,ordem:j});}}
+      }
       await filaDelete(pkg.id);ok++;
     }catch(e){console.error('[sync fila]',e.message);erros++;}
   }
@@ -1973,6 +1995,11 @@ async function editarOS(os){
     problema_relatado:os.problema_relatado||'',diagnostico_tecnico:os.diagnostico_tecnico||'',
     servicos_executados:os.servicos_executados||'',pecas_substituidas:os.pecas_substituidas||'',
     observacoes:os.observacoes||'',recomendacoes:os.recomendacoes||'',nome_responsavel_cliente:os.nome_responsavel_cliente||'',assinatura_tecnico:os.assinatura_tecnico||'',assinatura_cliente:os.assinatura_cliente||''};
+  // Preserva número e rastro de reabertura (essenciais ao salvar/sincronizar)
+  if(os.numero_os) formData.numero_os=os.numero_os;
+  if(os.reaberta_em) formData.reaberta_em=os.reaberta_em;
+  if(os.reaberta_por) formData.reaberta_por=os.reaberta_por;
+  if(os.total_reaberturas) formData.total_reaberturas=os.total_reaberturas;
   try{
     [tecnicos,clientes]=await Promise.all([sbGet('tecnicos','?select=id,nome&order=nome'),sbGet('clientes','?select=id,nome&order=nome')]);
     if(os.cliente_id) equipamentos=await sbGet('equipamentos','?select=id,tipo,marca,modelo&cliente_id=eq.'+os.cliente_id+'&order=tipo');
@@ -2347,7 +2374,9 @@ async function salvarOS(){
 
     var atObj;
     if(currentOSId&&!String(currentOSId).startsWith('RASC_')){
-      await sbPatch('atendimentos',currentOSId,dados);
+      var dadosPatch=Object.assign({},dados);
+      delete dadosPatch.numero_os;   // número da OS nunca é alterado
+      await sbPatch('atendimentos',currentOSId,dadosPatch);
       await sbDelete('checklist_itens','atendimento_id=eq.'+currentOSId);
       if(checklist.length) await sbPost('checklist_itens',checklist.map(function(c){return{categoria:c.c,item:c.i,resultado:c.resultado,observacao:c.observacao,ordem:c.ordem,atendimento_id:currentOSId};}));
       var novas=fotos.filter(function(f){return!f.isExisting;});
@@ -2399,24 +2428,41 @@ async function salvarOS(){
       if(!ok1) return;
       var ok2=await confirmar('Confirma a reabertura? Esta ação ficará registrada com seu nome e a data.','Confirmar reabertura','Cancelar');
       if(!ok2) return;
-      try{
-        var agora=new Date().toISOString();
-        var quem=nomeSessao ? nomeSessao() : (_sessao&&_sessao.nome)||'Admin';
-        var totalAnt=(currentOS.total_reaberturas||0)+1;
-        await sbPatch('atendimentos',currentOS.id,{
-          status:'em_andamento',
-          reaberta_em:agora,
-          reaberta_por:quem,
-          total_reaberturas:totalAnt
-        });
+      var agora=new Date().toISOString();
+      var quem=nomeSessao ? nomeSessao() : (_sessao&&_sessao.nome)||'Admin';
+      var totalAnt=(currentOS.total_reaberturas||0)+1;
+      var mudanca={status:'em_andamento',reaberta_em:agora,reaberta_por:quem,total_reaberturas:totalAnt};
+
+      // Aplica localmente primeiro (funciona com ou sem internet)
+      function aplicarLocal(){
         currentOS.status='em_andamento';
         currentOS.reaberta_em=agora;
         currentOS.reaberta_por=quem;
         currentOS.total_reaberturas=totalAnt;
-        toast('OS reaberta — faça as alterações e finalize novamente','success',5000);
+      }
+
+      if(navigator.onLine){
+        try{
+          await sbPatch('atendimentos',currentOS.id,mudanca);
+          aplicarLocal();
+          toast('OS reaberta — faça as alterações e finalize novamente','success',5000);
+          editarOS(currentOS);
+          return;
+        }catch(e){
+          // Falha de rede: cai para o modo offline abaixo
+          var msg=String(e.message||e);
+          var ehRede=msg.indexOf('Failed to fetch')!==-1||msg.indexOf('NetworkError')!==-1||msg.indexOf('Load failed')!==-1||msg.indexOf('timeout')!==-1;
+          if(!ehRede){ dialogo('Erro ao reabrir OS: '+msg,'error'); return; }
+        }
+      }
+
+      // ── MODO OFFLINE: reabre localmente; a alteração sobe no próximo sync ──
+      try{
+        aplicarLocal();
+        toast('OS reaberta no dispositivo — as alterações serão enviadas quando houver conexão','warning',6000);
         editarOS(currentOS);
-      }catch(e){
-        dialogo('Erro ao reabrir OS: '+String(e.message||e),'error');
+      }catch(e2){
+        dialogo('Erro ao reabrir OS: '+String(e2.message||e2),'error');
       }
     }
 
